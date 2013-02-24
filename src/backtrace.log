@@ -1,0 +1,36 @@
+Backtrace :
+(signal! #{record <condition-type>} (("error ~a during READING" 21)))
+( #{procedure loop})
+locals:
+loop => #{procedure loop}
+(port->region #{record <region>})
+locals:
+loop => #{procedure port->region loop}
+point => #{record <mark>}
+region => #{record <region>}
+(dynamic-wind #{procedure file->region} #{procedure file->region} #{procedure file->region})
+(read-buffer #{record <buffer>} "/home/pierre/git/smacs.git/src/apps-base/../../../scm/../native-scheme.git/src/")
+(com-open-text-file)
+locals:
+buffer => #{record <buffer>}
+short-name => ""
+file-name => "/home/pierre/git/smacs.git/src/apps-base/../../../scm/../native-scheme.git/src/"
+(command-loop)
+locals:
+command => #{record <command>}
+(dynamic-wind #{procedure let-fluid} #{procedure command-loop} #{procedure let-fluid})
+(command-loop)
+( #{procedure command-loop})
+locals:
+command-loop => #{procedure command-loop}
+(dynamic-wind #{procedure let-fluid} #{procedure start-editor} #{procedure let-fluid})
+(dynamic-wind #{procedure with-frame} #{procedure with-frame} #{procedure with-frame})
+(dynamic-wind #{procedure let-fluid} #{procedure start-editor} #{procedure let-fluid})
+(start-editor)
+locals:
+frame => #{record <frame>}
+(dynamic-wind #{procedure let-fluid} #{procedure start-editor} #{procedure let-fluid})
+(with-display ":0" #{procedure start-editor})
+locals:
+channel => #{channel 3}
+d => #{record <alien-value>}
