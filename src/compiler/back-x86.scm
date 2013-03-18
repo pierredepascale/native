@@ -431,5 +431,31 @@
     (lambda ()
       (emit "    .text")
       (compile-function exp '() (- 0 $wordsize) "L_scheme_entry")))
-  (run (gcc "-m32" "-o" scm rt.c scheme.s entry_x86.s))
-  (run ("./scm")))
+  (run (gcc "-m32" "-o" scm rt.c scheme.s entry_x86.s)))
+
+
+(define (read-expression-from-file file-name)
+  (with-input-from-file file-name (lambda () (read))))
+
+(define (compile-file file-name)
+  (let ((exp (read-expression-from-file file-name)))
+    (scmc exp)))
+
+(define (main args)
+  (for-each compile-file args))
+
+(define (test-exp name exp)
+  (scmc exp)
+  (let ((result (run/string scm)))
+    (if (string=? result "#t")
+        (begin
+          (display "[OK!] ") (display name) (newline))
+        (begin
+          (display "[ERR] ") (display name) (newline)))))
+
+(define (run-test-suite)
+  (let ((files (directory-files "test")))
+    (for-each (lambda (fn)
+                (let ((exp (read-expression-from-file (string-append "test/" fn))))
+                  (test-exp fn exp)))
+              files)))

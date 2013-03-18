@@ -1,23 +1,12 @@
 Backtrace :
-(signal! #{record <condition-type>} (("error ~a during READING" 21)))
-( #{procedure loop})
-locals:
-loop => #{procedure loop}
-(port->region #{record <region>})
-locals:
-loop => #{procedure port->region loop}
-point => #{record <mark>}
-region => #{record <region>}
-(dynamic-wind #{procedure file->region} #{procedure file->region} #{procedure file->region})
-(read-buffer #{record <buffer>} "/home/pierre/git/smacs.git/src/apps-base/../../../scm/../native-scheme.git/src/")
-(com-open-text-file)
-locals:
-buffer => #{record <buffer>}
-short-name => ""
-file-name => "/home/pierre/git/smacs.git/src/apps-base/../../../scm/../native-scheme.git/src/"
+(signal! #{record <condition-type>} (("Cannot kill line at end of buffer")))
+(dynamic-wind #{procedure let-fluid} #{procedure } #{procedure let-fluid})
 (command-loop)
 locals:
 command => #{record <command>}
+(dynamic-wind #{procedure with-input-context val} #{procedure command-loop command} #{procedure with-input-context val})
+(with-input-context #{record <semantic-type>} global-command-table #{procedure command-loop command})
+(command-loop)
 (dynamic-wind #{procedure let-fluid} #{procedure command-loop} #{procedure let-fluid})
 (command-loop)
 ( #{procedure command-loop})
