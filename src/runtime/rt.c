@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <stdint.h>
 
 #define FX_MASK 0x03
 #define FX_TAG  0x00
@@ -162,11 +163,20 @@ static char* alloc_protected_space(int size)
   char *p = mmap(0, aligned_size+2*page, PROT_READ|PROT_WRITE|PROT_EXEC,
 		 MAP_ANONYMOUS | MAP_PRIVATE,
 		 0,0) ;
-  if (p == MAP_FAILED) { printf("could not allocate memory") ; _exit(1) ; }
+  if (p == MAP_FAILED) {
+    perror("could not allocate memory") ; 
+    _exit(1) ;
+  }
   status = mprotect(p, page, PROT_NONE) ;
-  if (status != 0) { printf("could not protect begin of allocated memory") ; _exit(1) ; }
+  if (status != 0) {
+    perror("could not protect begin of allocated memory") ;
+    
+    _exit(1) ;
+  }
   status = mprotect(p + page + aligned_size, page, PROT_NONE) ;
-  if (status != 0) { printf("could not protect begin of allocated memory") ; _exit(1) ; }
+  if (status != 0) { 
+    printf("could not protect begin of allocated memory") ; _exit(1) ; 
+  }
   return p+page ;
 }
 
@@ -255,7 +265,7 @@ int main(int ac, char *av[])
   int fd = open(av[1], O_RDONLY) ;
   obj_t closure = read_fasl(fd) ;
 
-  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure), stack_top, heap_free) ;
+  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure), stack_base, heap_free) ;
   print_scm_obj(result) ;
 
   return 0 ;
@@ -318,10 +328,9 @@ obj_t read_template(int fd)
 
   template->debug = OBJ_FALSE ;
 
-  printf("code @ %08x\n", &template->code) ;
-  for (int i = 0 ; i < len ; i++) {
+  int i ;
+  for (i = 0 ; i < len ; i++) {
     uint8_t byte = read_u8(fd) ;
-    printf("%02x ", byte) ;
     template->code[i] = byte ;
   }
 
@@ -348,8 +357,9 @@ obj_t read_closure(int fd)
 
   template_t *template = (template_t *) untag(read_fasl(fd)) ;
   closure->closed[0] = (obj_t) &template->code ;
-
-  for (int i = 1 ; i < n ; i++) {
+  
+  int i ;
+  for (i = 1 ; i < n ; i++) {
     closure->closed[i] = read_fasl(fd) ;
   }
   
@@ -359,10 +369,11 @@ obj_t read_closure(int fd)
 obj_t read_symbol(int fd)
 {
   uint8_t len = read_u32(fd) ;
+  int i ;
 
   symbol_t *symbol = make_symbol(len) ;
 
-  for (int i = 0 ; i < len ; i++)
+  for (i = 0 ; i < len ; i++)
     symbol->ch[i] = read_u8(fd) ;
 
   return tag(symbol) ;
