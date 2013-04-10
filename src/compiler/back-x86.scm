@@ -6,11 +6,15 @@
 ;; compile the resulting assembly with
 ;; gcc -m32 -o scm rt.c scheme.S entry_x86.S
 
-(define (compile-function exp env si label)
-  #;(emit "; compiling " exp si label)
-  (emit-function-header label)
-  (compile exp env si '%eax)
-  (emit "    ret"))
+;; (define (compile-function exp env si label)
+;;   #;(emit "; compiling " exp si label)
+;;   (emit-function-header label)
+;;   (compile exp env si '%eax)
+;;   (emit "    ret"))
+
+(define (compile-code exp env)
+  (emit (compile exp env 0 %eax)
+        (x86-ret)))
 
 (define (compile exp env si dst)
   (cond ((literal? exp) (compile-literal exp env si dst))
@@ -19,8 +23,8 @@
 	((if? exp) (compile-if exp env si dst))
 	((let? exp) (compile-let exp env si dst))
 	((primitive-call? exp) (compile-primitive-call exp env si dst))
-	((call? exp) (compile-call exp env si dst))
 	((begin? exp) (compile-begin exp env si dst))
+	((call? exp) (compile-call exp env si dst))
 	(else (error "no compiler for expression ~a" exp))))
 
 ;;;
@@ -28,15 +32,18 @@
 
 (define (compile-begin exp env si dst)
   (let ((body (begin-body exp)))
-    (for-each (lambda (e) (compile e env si dst)) body)))
+    (emit
+     (map (lambda (e) (compile e env si dst)) body))))
 
 ;;;
 ;; == Literal expressions
 
-(define (literal? obj) (or (integer? obj) (boolean? obj) (null? obj) (char? obj)))
+(define (literal? obj)
+  (or (integer? obj) (boolean? obj) (null? obj) (char? obj)))
 
 (define (compile-literal exp env si dst)
-  (emit "    movl $" (encode exp) ", " dst))
+  (emit
+   (x86-movl ($ (encode exp)) dst)))
 
 ;;;
 ;; == Conditional expressions
@@ -49,7 +56,7 @@
 (define (compile-if exp env si dst)
   (let ((alt-label (unique-label))
 	(end-label (unique-label)))
-    (compile (if-test exp) env si '%eax)
+    (compile (if-test exp) env si %eax)
     (emit "    cmp $" (encode #f) ", %al")
     (emit "    je " alt-label)
     (compile (if-consequent exp) env si dst)
@@ -94,14 +101,14 @@
   (emit "    orl $" $char-tag ", " dst))
 
 (define-primitive (%fixnum? env si dst arg)
-  (compile arg env si '%eax)
+  (compile arg env si %eax)
   (emit "    and $" $fx-mask ", %al")
   (emit "    cmp $" $fx-tag ", %al")
   (emit "    sete %al")
   (emit "    movzbl %al, %eax")
   (emit "    sal $" $bool-bit ", %al")
   (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
+  (if (not (eq? dst %eax))
       (emit "    movl %eax, " dst)))
 
 (define-primitive (%fx-1+ env si dst arg)
@@ -199,7 +206,7 @@
   (error "unimplemented %vector-set!"))
 
 (define-primitive (%vector? env si dst arg)
-  (tagged-pointer-preficate env si dst arg $vector-mask $vector-tag))
+  (tagged-pointer-predicate env si dst arg $vector-mask $vector-tag))
 
 (define-primitive (%pair? env si dst arg)
   (tagged-pointer-predicate env si dst arg $pair-mask $pair-tag))
@@ -244,7 +251,7 @@
   (tagged-pointer-predicate env si dst arg $symbol-mask $symbol-tag))
 
 (define (tagged-pointer-predicate env si dst arg mask tag)
-  (compile arg env si '%eax)
+  (compile arg env si %eax)
   (emit "    and $" mask ", %al")
   (emit "    cmp $" tag ", %al")
   (emit "    sete %al")
@@ -295,7 +302,7 @@
     (if (null? bindings)
 	(compile (let-body exp) new-env si dst)
 	(let ((binding (car bindings)))
-	  (compile (binding-expression binding) env si '%eax)
+	  (compile (binding-expression binding) env si %eax)
 	  (emit-stack-save si)
 	  (compile-bindings (cdr bindings) (- si $wordsize)
 			    (bind-var (binding-name binding) si env))))))
@@ -312,7 +319,7 @@
   (if (null? frees)
       'ok
       (let ((free (car frees)))
-	(compile free env si '%eax)
+	(compile free env si %eax)
 	(emit "    movl %eax, " offset "(%ebp)")
 	(compile-lambda-free (cdr frees) env si (+ offset $wordsize)))))
 
@@ -346,7 +353,7 @@
 	    (si (- 0 $wordsize))
 	    (env env))
       (if (null? formals)
-	  (compile-entry exp (make-closed-env (clambda-free exp) env (- (* 2 $wordsize) $closure-tag)) si '%eax)
+	  (compile-entry exp (make-closed-env (clambda-free exp) env (- (* 2 $wordsize) $closure-tag)) si %eax)
 	  (f (cdr formals)
 	     (- si $wordsize)
 	     (bind-var (car formals) si env))))
@@ -387,7 +394,7 @@
   (if (null? args)
       si
       (begin
-	(compile (car args) env si '%eax)
+	(compile (car args) env si %eax)
 	(emit "    movl %eax, " si "(%esp)")
 	(compile-arguments (cdr args) env (- si $wordsize)))))
 
@@ -427,35 +434,124 @@
 	     ((%car fib) fib 36)))))
 
 (define (scmc exp)
-  (with-output-to-file "scheme.s"
+  (let ((stdout (current-output-port)))
+    (with-output-to-file "code.fasl"
+      (lambda ()
+        (let ((template (assemble (compile-code exp '()))))
+          (display ";; " stdout) (write template stdout) (newline stdout)
+          (write-fasl (make-closure template '()) (current-output-port)))))))
+
+(define (read-test-from-file file-name)
+  (with-input-from-file file-name
     (lambda ()
-      (emit "    .text")
-      (compile-function exp '() (- 0 $wordsize) "L_scheme_entry")))
-  (run (gcc "-m32" "-o" scm rt.c scheme.s entry_x86.s)))
-
-
-(define (read-expression-from-file file-name)
-  (with-input-from-file file-name (lambda () (read))))
+      (let ((exp (read))
+            (expected (read)))
+        (cons exp expected)))))
 
 (define (compile-file file-name)
-  (let ((exp (read-expression-from-file file-name)))
+  (let ((exp (read-test-from-file file-name)))
     (scmc exp)))
 
 (define (main args)
   (for-each compile-file args))
 
 (define (test-exp name exp)
-  (scmc exp)
-  (let ((result (run/string scm)))
-    (if (string=? result "#t")
+  (scmc (car exp))
+  (let ((result (run/string ("../runtime/rt" "code.fasl"))))
+    (if (string=? result (cdr exp))
         (begin
           (display "[OK!] ") (display name) (newline))
         (begin
           (display "[ERR] ") (display name) (newline)))))
 
 (define (run-test-suite)
-  (let ((files (directory-files "test")))
+  (let ((files (directory-files "../../test")))
     (for-each (lambda (fn)
-                (let ((exp (read-expression-from-file (string-append "test/" fn))))
+                (let ((test (read-test-from-file (string-append "../../test/" fn))))
                   (test-exp fn exp)))
               files)))
+
+;;; FASL support
+
+(define $fasl/template 0)
+(define $fasl/ref 1)
+(define $fasl/number 2)
+(define $fasl/closure 3)
+(define $fasl/symbol 4)
+
+(define (write-fasl code port)
+  ;(debug 'write-fasl code)
+  (cond ((template? code) (write-fasl-template code port))
+        ((ref? code) (write-fasl-ref code port))
+        ((number? code) (write-fasl-number code port))
+        ((closure? code) (write-fasl-closure code port))
+        ((symbol? code) (write-fasl-symbol code port))
+        (else (error "don't know how to write fasl ~a" code))))
+
+(define (write-fasl-template code port)
+  (write-u8 port $fasl/template)
+  (write-u32 port (template-length code))
+  (let lp ((i 0))
+    (if (< i (template-length code))
+        (let ((code (template-ref code i)))
+          ;(debug "write-fasl-template " code)
+          (write-u8 port code)
+          (lp (+ i 1))))))
+
+(define (write-fasl-ref code port)
+  (write-u8 port $fasl/ref)
+  (write-fasl-symbol (ref-name code) port))
+
+(define (write-fasl-closure code port)
+  (write-u8 port $fasl/closure)
+  (write-u32 port (closure-length code))
+  (let lp ((i 0))
+    (if (< i (closure-length code))
+        (let ((code (closure-ref code i)))
+          ;(debug 'write-fasl-closure code)
+          (write-fasl code port)
+          (lp (+ i 1))))))
+
+(define (write-fasl-symbol code port)
+  (write-u8 port $fasl/symbol)
+  (let ((sym (symbol->string code)))
+    (write-u32 port (string-length sym))
+    (let lp ((i 0))
+      (if (< i (string-length sym))
+          (let ((ch (string-ref sym i)))
+            ;(debug "write-fasl-symbol " ch)
+            (write-u8 port (char->ascii ch))
+            (lp (+ i 1)))))))
+
+(define (write-fasl-number code port)
+  (write-u8 port $fasl/number)
+  (if (and (< code 128)
+           (> code -128))
+      (write-u8 port (+ 128 code))
+      (error "write too big number ~a" code)))
+
+(define (u8->char u8) (integer->char (+ u8 -32 (char->integer #\space))))
+
+(define (make-template size) (vector 'template (make-vector size)))
+(define (make-template* code) (vector 'template code))
+(define (template? obj) (and (vector? obj) (eq? 'template (vector-ref obj 0))))
+(define (template-length t) (vector-length (vector-ref t 1)))
+(define (template-set! t i v) (vector-set! (vector-ref t 1) i v))
+(define (template-ref t i) (vector-ref (vector-ref t 1) i))
+
+(define (make-closure template env)
+  (list->vector (cons 'closure (cons template env))))
+(define (closure? obj) (and (vector? obj) (eq? 'closure (vector-ref obj 0))))
+(define (closure-length closure) (- (vector-length closure) 1))
+(define (closure-ref closure offset) (vector-ref closure (+ offset 1)))
+
+(define (make-ref name value) (vector 'ref name value))
+(define (ref? obj) (and (vector? obj) (eq? 'ref (vector-ref obj 0))))
+(define (ref-name obj) (and (ref? obj) (vector-ref obj 1)))
+
+(define (write-u8 port byte) (write-char (u8->char byte) port))
+(define (write-u32 port word)
+  (write-u8 port 0)
+  (write-u8 port 0)
+  (write-u8 port 0)
+  (write-u8 port word))

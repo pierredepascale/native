@@ -1,57 +1,57 @@
 	.file	"fib.c"
 	.text
-.globl fib
-	.type	fib, @function
-fib:
+.globl _fib
+	.def	_fib;	.scl	2;	.type	32;	.endef
+_fib:
 	pushl	%ebp
 	movl	%esp, %ebp
 	pushl	%ebx
 	subl	$20, %esp
+        movl    $1234, %eax
 	cmpl	$1, 8(%ebp)
-	jg	.L2
+	jg	L2
+        je      L2
+        jne     L2
+        jl      L2
+        cmp     $2, %al
+        addl    $7, %eax
+        shll    $7, %eax
+        orl     $7, %eax
+        and     $8, %al
+        sete    %al
+        movzbl  %al, %eax
+        sal     $7, %al
+        subl    $7, %eax
+        movl    4(%eax), %eax
+        movl    %eax, 8(%esp)
 	movl	8(%ebp), %eax
-	jmp	.L3
-.L2:
+	jmp	L3
+L2:
 	movl	8(%ebp), %eax
 	subl	$1, %eax
 	movl	%eax, (%esp)
-	call	fib
+	call	_fib
 	movl	%eax, %ebx
 	movl	8(%ebp), %eax
 	subl	$2, %eax
 	movl	%eax, (%esp)
-	call	fib
+	call	_fib
 	leal	(%ebx,%eax), %eax
-.L3:
+L3:
 	addl	$20, %esp
 	popl	%ebx
 	popl	%ebp
 	ret
-	.size	fib, .-fib
-.globl tt
-	.type	tt, @function
-tt:
+	.def	___main;	.scl	2;	.type	32;	.endef
+.globl _main
+	.def	_main;	.scl	2;	.type	32;	.endef
+_main:
 	pushl	%ebp
-	movl	%esp, %ebp
-	subl	$40, %esp
-	movl	$fib, -12(%ebp)
-	movl	$10, (%esp)
-	movl	-12(%ebp), %eax
-	call	*%eax
-	leave
-	ret
-	.size	tt, .-tt
-.globl main
-	.type	main, @function
-main:
-	pushl	%ebp
-	movl	%esp, %ebp
+	movl	% esp, %ebp
 	andl	$-16, %esp
 	subl	$16, %esp
-	movl	$34, (%esp)
-	call	fib
+	call	___main
+	movl	$36, (%esp)
+	call	_fib
 	leave
 	ret
-	.size	main, .-main
-	.ident	"GCC: (Ubuntu/Linaro 4.4.4-14ubuntu5) 4.4.5"
-	.section	.note.GNU-stack,"",@progbits
