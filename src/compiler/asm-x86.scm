@@ -2,11 +2,6 @@
 
 (define (emit . code) code)
 
-(define (emit-function-header label)
-  (emit "    .globl " label)
-  (emit "    .type " label ", @function")
-  (emit label ":"))
-
 (define unique-label
   (let ((count 0))
     (lambda ()
@@ -29,12 +24,52 @@
 
 (define (flatten tree)
   (cond ((null? tree) tree)
+        ((and (pair? tree) (eq? (car tree) 'short)) tree)
+        ((and (pair? tree) (eq? (car tree) 'long)) tree)
         ((number? tree) (list tree))
         (else (append (flatten (car tree))
                       (flatten (cdr tree))))))
 
+(define (compute-labels code k)
+  (let lp ((code code)
+           (labels '())
+           (pc 0))
+    (if (null? code)
+        (k labels pc)
+        (let ((op (car code)))
+          (cond ((number? op) (lp (cdr code) labels (+ pc 1)))
+                ((and (pair? op) (eq? (car op) 'short))
+                 (lp (cdr code) labels (+ pc 1)))
+                ((and (pair? op) (eq? (car op) 'long))
+                 (lp (cdr code) labels (+ pc 4)))
+                ((string? op) (lp (cdr code) (cons op pc) pc))
+                (else (error "unknown assembler opcode ~a" op)))))))
+
 (define (assemble code)
-  (make-template* (list->vector (flatten code))))
+  (let ((flatten-code (flatten code)))
+    (compute-labels flatten-code
+                    (lambda (labels size)
+                      (assemble-code flatten-code labels size)))))
+
+(define (assemble-code code labels size)
+  (let ((template (make-template size)))
+    (let lp ((code code)
+             (pc 0))
+      (if (null? code)                            
+          template
+          (let ((op (car code)))
+            (cond ((number? op)
+                   (template-set! template pc op)
+                   (lp (cdr code) (+ pc 1)))
+                  ((and (pair? op) (eq? (car op) 'short))
+                   (template-set! template pc 0)
+                   (lp (cdr code) (+ pc 1)))
+                  ((and (pair? op) (eq? (car op) 'long))
+                   (template-set! template pc 0)
+                   (lp (cdr code) (+ pc 4)))
+                  ((string? op)
+                   (lp (cdr code) pc))
+                  (else (error "unknown assembler operand ~a" op))))))))
 
 (define (x86-movl src dst)
   (cond ((and (x86-immediate? src) (eq? dst %eax))
@@ -47,10 +82,10 @@
       (error "unsupported asm")))
 
 (define (x86-je label)
-  (cons #x74 (x86-encode-8 label)))
+  (cons #x74 (list 'short label)))
 
 (define (x86-jmp label)
-  (cons #xeb (x86-encode-8 label)))
+  (cons #xeb (list 'short label)))
 
 (define (x86-shll src val) (list))
 
@@ -84,6 +119,8 @@
   (if (and (eq? src %al) (eq? dst %eax))
       (list #x0f #xb6 #xc0)
       (error "unsupported asm")))
+
+(define (x86-label label) label)
 
 (define (x86-immediate? val) (and (pair? val) (eq? (car val) '$)))
 (define (x86-immediate-value imm) (cadr imm))

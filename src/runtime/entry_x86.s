@@ -1,8 +1,10 @@
         .file "entry_x86.s"
 	.text
 .globl scheme_entry
+.globl _scheme_entry
 
 scheme_entry:
+_scheme_entry:
 	movl 4(%esp), %ecx
 	movl %ebx, 4(%ecx)
 	movl %esi, 16(%ecx)

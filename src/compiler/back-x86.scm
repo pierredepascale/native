@@ -56,14 +56,15 @@
 (define (compile-if exp env si dst)
   (let ((alt-label (unique-label))
 	(end-label (unique-label)))
-    (compile (if-test exp) env si %eax)
-    (emit "    cmp $" (encode #f) ", %al")
-    (emit "    je " alt-label)
-    (compile (if-consequent exp) env si dst)
-    (emit "    jmp " end-label)
-    (emit alt-label ":")
-    (compile (if-alternative exp) env si dst)
-    (emit end-label ":")))
+    (emit
+     (compile (if-test exp) env si %eax)
+     (x86-cmp ($ (encode #f) %al))
+     (x86-je alt-label)
+     (compile (if-consequent exp) env si dst)
+     (x86-jmp end-label)
+     (x86-label alt-label)
+     (compile (if-alternative exp) env si dst)
+     (x86-label end-label))))
 
 ;;;
 ;; == Primitives
@@ -532,7 +533,7 @@
 
 (define (u8->char u8) (integer->char (+ u8 -32 (char->integer #\space))))
 
-(define (make-template size) (vector 'template (make-vector size)))
+(define (make-template size) (vector 'template (make-vector size 0)))
 (define (make-template* code) (vector 'template code))
 (define (template? obj) (and (vector? obj) (eq? 'template (vector-ref obj 0))))
 (define (template-length t) (vector-length (vector-ref t 1)))
