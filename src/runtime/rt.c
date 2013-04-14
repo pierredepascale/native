@@ -28,6 +28,9 @@
 #define STRING_TAG     0x06
 #define STRING_SHIFT   3
 
+#define CHAR_MASK      0xff
+#define CHAR_TAG       0x0f
+
 #define IMM_MASK       0x07
 #define IMM_TAG        0x07
 #define IMM_SHIFT      3
@@ -42,16 +45,19 @@ typedef intptr_t header_t ;
  * 00000000000000 000000 01 -> pointers
  * 00000000000000 000000 10 -> immediates
  */
-#define MAKE_IMMEDIATE(code) ((obj_t) (((code) << 2) + 2))
-#define OBJ_TRUE       MAKE_IMMEDIATE(0)
-#define OBJ_FALSE      MAKE_IMMEDIATE(1)
-#define OBJ_UNSPECIFIC MAKE_IMMEDIATE(2)
-#define OBJ_UNBOUND    MAKE_IMMEDIATE(3)
+#define MAKE_IMMEDIATE(code) ((obj_t) (((code) << 4) + 15))
+#define OBJ_TRUE       MAKE_IMMEDIATE(3)
+#define OBJ_FALSE      MAKE_IMMEDIATE(2)
+#define OBJ_UNSPECIFIC MAKE_IMMEDIATE(6)
+#define OBJ_UNBOUND    MAKE_IMMEDIATE(7)
 #define OBJ_NIL        MAKE_IMMEDIATE(4)
 #define OBJ_EOF        MAKE_IMMEDIATE(5)
 
 #define MAKE_NUMBER(n) ((obj_t) (n<<2))
 #define NUMBER(n) (n>>2)
+
+#define MAKE_CHAR(ch) ((obj_t) ((n << 8) + CHAR_TAG))
+#define CHAR(ch) ((ch) >> 8)
 
 static obj_t *alloc(size_t) ;
 
@@ -265,7 +271,7 @@ int main(int ac, char *av[])
   int fd = open(av[1], O_RDONLY) ;
   obj_t closure = read_fasl(fd) ;
 
-  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure), stack_base, heap_free) ;
+  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure), stack_base-WORDSIZE, heap_free) ;
   print_scm_obj(result) ;
 
   return 0 ;

@@ -26,10 +26,10 @@
 
 (define $string-shift 3)
 (define $string-mask #x07)
-(define $string-tag #b110)
+(define $string-tag #b111)
 
 (define $bool-shift 8)
-(define $bool-bit 6)
+(define $bool-bit 4)
 (define $bool-mask #b11101111)
 
 (define $char-shift 8)
@@ -46,9 +46,6 @@
 (define $immediate-unspecific #b01101111)
 (define $immediate-eof        #b01011111)
 
-(define $closure "%esi")
-(define $argc "%edx")
-
 (define (fixnum? x)
   (and (integer? x) (exact? x) (<= $fx-lower x) (<= x $fx-upper)))
 
@@ -60,4 +57,7 @@
 	((boolean? obj) (if obj $immediate-true $immediate-false))
 	((char? obj) (+ $char-tag (* 256 (char->integer obj))))
 	((null? obj) $immediate-nil)
+	((eof-object? obj) $immediate-eof)
+	((unspecific-object? obj) $immediate-unspecific)
+	((unbound-object? obj) $immediate-unbound)
 	(else (error "No encoding for object ~a" obj))))

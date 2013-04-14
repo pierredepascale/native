@@ -1,0 +1,8 @@
+("fixnum addition" (%fx+ 3 4) "7")
+("fixnum addition, negative result" (%fx+ 3 -4) "-1")
+("fixnum subtraction" (%fx- 7 4) "3")
+("fixnum subtraction, negative result" (%fx- 4 7) "-3")
+("fixnum equality" (%fx= 127 127) "#t")
+("fixnum equality" (%fx= 127 126) "#f")
+("fixnum comparison lt" (%fx< 126 127) "#t")
+("fixnum comparison lt" (%fx< 127 126) "#f")

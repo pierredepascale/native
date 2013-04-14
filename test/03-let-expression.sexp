@@ -1,0 +1,7 @@
+("basic let + variable reference" (let ((a 1)) a) "1")
+("let with multiple bindings" (let ((a 1) (b 2)) b) "2")
+("let with primitive call as body" (let ((a 3) (b 4)) (%fx+ a b)) "7")
+("let within let" (let ((a 3)) (let ((b 4)) b)) "4")
+("let within let 2" (let ((a 3)) (let ((b 4)) a)) "3")
+("let within let 3" (let ((a 4)) (let ((b a)) a)) "4")
+("let with shadow bindings" (let ((a 4)) (let ((a 5)) a)) "5")

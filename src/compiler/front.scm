@@ -10,18 +10,6 @@
 (define (begin? exp) (and (pair? exp) (eq? 'begin (car exp))))
 (define begin-body cdr)
 
-(define (bound-variable? exp) (and (pair? exp) (eq? 'bound (car exp))))
-(define bound-variable-depth cadr)
-(define bound-variable-name caddr)
-
-(define (free-variable? exp) (and (pair? exp) (eq? 'free (car exp))))
-(define free-variable-index cadr)
-(define free-variable-kind caddr)
-(define free-variable-info cadddr)
-
-(define (global-variable? exp) (and (pair? exp) (eq? 'global (car exp))))
-(define global-name cadr)
-
 ;;;
 ;; == Assignment convertion 
 ;;
@@ -130,15 +118,14 @@
   (setted-variables (lambda-body exp)))
 
 ;;;
-;; == Free variable
+;; ## Free variable
 
 (define (free-variables exp)
   (cond ((literal? exp) (free-variables-literal exp))
         ((variable? exp) (free-variables-variable exp))
         ((if? exp) (free-variables-if exp))
-        ((set!? exp) (free-variables-set! exp))
         ((let? exp) (free-variables-let exp))
-        ((lambda? exp) (free-variables-lambda exp))
+        ((clambda? exp) (free-variables-lambda exp))
         ((primitive-call? exp) (free-variables-primitive-call exp))
         ((call? exp) (free-variables-call exp))
         (else (error "free variables unknwon expression ~a" exp))))
@@ -149,26 +136,51 @@
       (set-union (free-variables (car exp))
                  (free-variables* (cdr exp)))))
 
+;;;
+;; ### Free variables in literals
+
+(define (literal-immediate? exp)
+  (or (number? exp)
+      (char? exp)
+      (boolean? exp)
+      (null? exp)
+      (unspecific-object? exp)
+      (unbound-object? exp)
+      (eof-object? exp)))
+
 (define (free-variables-literal exp)
-  (set-empty))
+  (if (literal-immediate? exp)
+      (set-empty)
+      (set-singleton (list 'lit exp))))
+
+;;;
+;; ### Free variable in variable
 
 (define (free-variables-variable exp)
-  (set-singleton exp))
+  (set-singleton (list 'var exp)))
+
+;;;
+;; ### Free variable in conditional
 
 (define (free-variables-if exp)
   (set-union (free-variables (if-test exp))
              (set-union (free-variables (if-consequent exp))
                         (free-variables (if-alternative exp)))))
 
+;;;
+;; ### Free variable in primitive call
+
 (define (free-variables-primitive-call exp)
-  (free-variables* exp))
+  (free-variables* (cdr exp)))
+
+;;;
+;; ##3 Free variable in calling procedures
 
 (define (free-variables-call exp)
   (free-variables* exp))
 
-(define (free-variables-set! exp)
-  (set-union (set-singleton (set!-variable exp))
-             (set-union (free-variables (set!-value exp)))))
+;;;
+;; ### Free variable in let binding
 
 (define (free-variables-let exp)
   (let* ((bindings (let-bindings exp))
@@ -178,9 +190,11 @@
                (set-difference (free-variables (let-body exp))
                                (list->set vars)))))
 
+;;;
+;; ### Free variable in lambda expressions
+
 (define (free-variables-lambda exp)
-  (set-difference (free-variables (lambda-body exp))
-                  (list->set (lambda-formals exp))))
+  (set-singleton (list 'lambda exp)))
 
 ;;;
 ;; == Set data structure
@@ -199,7 +213,7 @@
   (if (null? s1)
       s2
       (let ((e1 (car s1)))
-        (if (memq e1 s2)
+        (if (member e1 s2)
             (set-union (cdr s1) s2)
             (cons e1 (set-union (cdr s1) s2))))))
 
@@ -210,7 +224,7 @@
   (if (null? s1)
       s1
       (let ((e1 (car s1)))
-        (if (memq e1 s2)
+        (if (member e1 s2)
             (set-difference (cdr s1) s2)
             (cons e1 (set-difference (cdr s1) s2))))))
 
@@ -222,7 +236,7 @@
 ;;;
 ;; Predicate for testing if `element` is in `set`.
 (define (set-member? element set)
-  (memq element set))
+  (member element set))
 
 ;;;
 ;; Returns a list of all the element of `set`.
@@ -236,7 +250,7 @@
       (set-empty)
       (let ((e (car list))
             (set (list->set (cdr list))))
-        (if (memq e set)
+        (if (member e set)
             set
             (cons e set)))))
 

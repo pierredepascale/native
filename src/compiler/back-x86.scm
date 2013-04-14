@@ -6,14 +6,8 @@
 ;; compile the resulting assembly with
 ;; gcc -m32 -o scm rt.c scheme.S entry_x86.S
 
-;; (define (compile-function exp env si label)
-;;   #;(emit "; compiling " exp si label)
-;;   (emit-function-header label)
-;;   (compile exp env si '%eax)
-;;   (emit "    ret"))
-
 (define (compile-code exp env)
-  (emit (compile exp env 0 %eax)
+  (emit (compile exp env (- 0 $wordsize) %eax)
         (x86-ret)))
 
 (define (compile exp env si dst)
@@ -39,11 +33,15 @@
 ;; == Literal expressions
 
 (define (literal? obj)
-  (or (integer? obj) (boolean? obj) (null? obj) (char? obj)))
+  (or (number? obj) (char? obj) (boolean? obj) (null? obj) 
+      (unspecific-object? obj) (unbound-object? obj) (eof-object? obj)
+      (and (pair? obj) (eq? 'quote (car obj)))))
 
 (define (compile-literal exp env si dst)
-  (emit
-   (x86-movl ($ (encode exp)) dst)))
+  (if (literal-immediate? exp)
+      (emit
+       (x86-movl ($ (encode exp)) dst))
+      (error "unsupported complex literal ~a" exp)))
 
 ;;;
 ;; == Conditional expressions
@@ -58,7 +56,7 @@
 	(end-label (unique-label)))
     (emit
      (compile (if-test exp) env si %eax)
-     (x86-cmp ($ (encode #f) %al))
+     (x86-cmp ($ (encode #f)) %al)
      (x86-je alt-label)
      (compile (if-consequent exp) env si dst)
      (x86-jmp end-label)
@@ -93,109 +91,128 @@
 	(error "primitive definition for ~a for found" exp))))
 
 (define-primitive (%fx+1 env si dst arg)
-  (compile arg env si)
-  (emit "    addl $" (encode 1) ", " dst))
+  (emit
+   (compile arg env si dst)
+   (x86-addl ($ (encode 1)) dst)))
 
 (define-primitive (%fixnum->char env si dst arg)
-  (compile arg env si dst)
-  (emit "    shll $" (- $char-shift $fx-shift) ", " dst)
-  (emit "    orl $" $char-tag ", " dst))
+  (emit
+   (compile arg env si dst)
+   (x86-shll ($ (- $char-shift $fx-shift)) dst)
+   (x86-orl ($ $char-tag) dst)))
 
 (define-primitive (%fixnum? env si dst arg)
-  (compile arg env si %eax)
-  (emit "    and $" $fx-mask ", %al")
-  (emit "    cmp $" $fx-tag ", %al")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst %eax))
-      (emit "    movl %eax, " dst)))
+  (emit
+   (compile arg env si %eax)
+   (x86-and ($ $fx-mask) %al)
+   (x86-cmp ($ $fx-tag) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
 (define-primitive (%fx-1+ env si dst arg)
-  (compile arg env si dst)
-  (emit "    addl $" (encode -1) ", " dst))
+  (emit
+   (compile arg env si dst)
+   (x86-addl ($ (encode -1)) dst)))
 
 (define-primitive (%null? env si dst arg)
-  (compile arg env si '%eax)
-  (emit "    cmp $" (encode '()) ", %al")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
+  (emit
+   (compile arg env si %eax)
+   (x86-cmp ($ (encode '())) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
 (define-primitive (%not env si dst arg)
-  (compile arg env si '%eax)
-  (emit "    cmp $" (encode #f) ", %eax")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    xorl $1, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
+  (emit
+   (compile arg env si %eax)
+   (x86-cmp ($ (encode #f)) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-xorl ($ (encode 1)) %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
 (define-primitive (%boolean? env dst si arg)
-  (compile arg env si '%eax)
-  (emit "    and $" $bool-mask ", %al")
-  (emit "    cmp $" (encode #f) ", %al")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
- 
+  (emit
+   (compile arg env si %eax)
+   (x86-and ($ $bool-mask) %al)
+   (x86-cmp ($ (encode #f)) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
+
 (define-primitive (%char? env si dst arg)
   (tagged-pointer-predicate env si dst arg $char-mask $char-tag))
 
 (define-primitive (%fx= env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env si '%eax)
-  (emit "    cmp %eax, " si "(%esp)")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
+  (emit
+   (compile arg1 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg2 env si %eax)
+   (x86-cmpl %eax (^ si %esp))
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ (encode #f)) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
 (define-primitive (%fxzero? env si dst arg)
-  (compile arg env si '%eax)
-  (emit "    cmpl $0, %eax")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
-
+  (emit
+   (compile arg env si %eax)
+   (x86-cmp ($ (encode 0)) %eax)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ (encode #f)) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
+  
 (define-primitive (%fx< env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env si '%eax)
-  (emit "    cmp %eax, " si "(%esp)")
-  (emit "    setl %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
-      (emit "    movl %eax, " dst)))
+  (emit
+   (compile arg1 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg2 env si %eax)
+   (x86-cmpl %eax (^ si %esp))
+   (x86-setl %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ (encode #f)) %al)
+   (if (not (eq? dst %eax))
+       (emit "    movl %eax, " dst)
+       (list))))
 
 (define-primitive (%fx+ env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) dst)
-  (emit "    addl " si "(%esp), " dst))
+  (emit
+   (compile arg1 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg2 env (- si $wordsize) dst)
+   (x86-addl (^ si %esp) dst)))
 
 (define-primitive (%fx- env si dst arg1 arg2)
-  (compile arg2 env si '%eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg1 env (- si $wordsize) dst)
-  (emit "    subl " si "(%esp), " dst))
+  (emit
+   (compile arg2 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg1 env (- si $wordsize) dst)
+   (x86-subl (^ si %esp) dst)))
 
 (define-primitive (%vector env si dst arg)
   (error "unimplemented %vector"))
@@ -213,9 +230,9 @@
   (tagged-pointer-predicate env si dst arg $pair-mask $pair-tag))
 
 (define-primitive (%cons env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
+  (compile arg1 env si %eax)
   (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) '%eax)
+  (compile arg2 env (- si $wordsize) %eax)
   (emit "    movl %eax, " $wordsize "(%ebp)")
   (emit "    movl " si "(%esp), %eax")
   (emit "    movl %eax, (%ebp)")
@@ -232,16 +249,16 @@
   (emit "    movl " (- $wordsize $pair-tag) "(" dst "), " dst))
 
 (define-primitive (%set-car! env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
+  (compile arg1 env si %eax)
   (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) '%eax)
+  (compile arg2 env (- si $wordsize) %eax)
   (emit "    movl " si "(%esp), %ebx")
   (emit "    movl %eax, " (- 0 $pair-tag) "(%ebx)"))
 
 (define-primitive (%set-cdr! env si dst arg1 arg2)
-  (compile arg1 env si '%eax)
+  (compile arg1 env si %eax)
   (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) '%eax)
+  (compile arg2 env (- si $wordsize) %eax)
   (emit "    movl " si "(%esp), %ebx")
   (emit "    movl %eax, " (- $wordsize $pair-tag) "(%ebx)"))
 
@@ -259,7 +276,7 @@
   (emit "    movzbl %al, %eax")
   (emit "    sal $" $bool-bit ", %al")
   (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst '%eax))
+  (if (not (eq? dst %eax))
       (emit "    movl %eax, " dst)))
 
 ;;;
@@ -267,22 +284,79 @@
 
 (define variable? symbol?)
 
-(define (closed-binding? binding) (and (pair? binding) (eq? 'closed (car binding))))
-(define (local-binding? binding) (and (pair? binding) (eq? 'local (car binding))))
-(define local-binding-index cdr)
-(define closed-binding-index cdr)
+(define (make-free depth) (list 'free depth))
+(define (free-binding? binding)
+  (and (pair? binding) (eq? 'free (car binding))))
+(define free-binding-depth cadr)
 
-(define (lookup-env var env)
-  (let ((entry (assq var env)))
-    (if entry (cdr entry) #f)))
+(define (make-local depth) (list 'local depth))
+(define (local-binding? binding)
+  (and (pair? binding) (eq? 'local (car binding))))
+(define local-binding-depth cadr)
+
+(define (make-global depth) (list 'global depth))
+(define (global-binding? binding)
+  (and (pair? binding) (eq? 'global (car binding))))
+(define global-binding-depth cadr)
+
+(define (lookup-free-variable var env)
+  (let find ((env env)
+	     (depth 0))
+    (if (null? env)
+	#f
+	(let ((entry (car env)))
+	  (cond ((and (eq? (car entry) 'var)
+		      (eq? (cadr entry) var))
+		 (make-free depth))
+		((and (eq? (car entry) 'global)
+		      (eq? (cadr entry) var))
+		 (make-global depth))
+		(else (find (cdr env) (+ depth 1))))))))
+
+(define (lookup-local-variable var env)
+  (let ((depth (lookup-local-variable-depth var env)))
+    (and depth (make-local depth))))
+
+(define (lookup-local-variable-depth var env)
+  (if (null? env)
+      #f
+      (let ((d (lookup-local-variable-depth var (cdr env))))
+	  (cond (d (+ d 1))
+		((eq? var (car env)) 0)
+		(else d)))))
+
+(define (lookup-variable var env)
+  (or (lookup-local-variable var (env-local env))
+      (lookup-free-variable var (env-free env))))
 
 (define (compile-variable exp env si dst)
-  (let ((binding (lookup-env exp env)))
+  (let ((binding (lookup-variable exp env)))
     (if binding
-	(if (local-binding? binding)
-	    (emit "    movl " (local-binding-index binding) "(%esp), " dst)
-	    (emit "    movl " (closed-binding-index binding) "(%esi), " dst))
-	(error "unbound variable ~a" exp))))
+	(cond ((local-binding? binding)
+	       (compile-local-variable binding si dst))
+	      ((free-binding? binding)
+	       (compile-free-variable binding si dst))
+	      ((global-binding? binding)
+	       (compile-global-variable binding si dst))
+	      (else (error "unknown binding kind ~a" binding))))))
+
+(define (compile-local-variable binding si dst)
+  (emit
+   (x86-movl (^ (- 0 (* $wordsize (+ 1 (local-binding-depth binding)))) %esp)
+	     dst)))
+
+(define (compile-free-variable binding si dst)
+  (emit
+   (x86-movl (^ (* $wordsize (+ 1 (free-binding-depth binding))) %esi) dst)))
+
+(define (compile-global-variable binding si dst)
+  (let ((end-label (unique-label)))
+    (emit
+     (x86-movl (^ (global-binding-depth binding) %esi) dst)
+     (x86-movl (^ (- (* 2 $wordsize) $pair-tag) dst) dst)
+     (x86-cmpl ($ $immediate-unbound) %dst)
+     (x86-jne end-label)
+     end-label)))
 
 ;;;
 ;; == Let expression
@@ -293,23 +367,35 @@
 (define binding-expression cadr)
 (define binding-name car)
 
-(define (bind-var name index env) (cons (cons name (cons 'local index)) env))
-(define (bind-closed-var name index env) (cons (cons name (cons 'closed index)) env))
+(define (bind-local-variables names env)
+  (make-environment (env-free env)
+		    (append (env-local env) names)))
 
 (define (compile-let exp env si dst)
-  (let compile-bindings ((bindings (let-bindings exp))
-			 (si si)
-			 (new-env env))
-    (if (null? bindings)
-	(compile (let-body exp) new-env si dst)
-	(let ((binding (car bindings)))
-	  (compile (binding-expression binding) env si %eax)
-	  (emit-stack-save si)
-	  (compile-bindings (cdr bindings) (- si $wordsize)
-			    (bind-var (binding-name binding) si env))))))
+  (let* ((bindings (let-bindings exp))
+	 (inits (map binding-expression bindings))
+	 (names (map binding-name bindings)))
+    (emit
+     (compile-inits inits env si)
+     (compile (let-body exp) (bind-local-variables names env)
+	      (- si (* $wordsize (length names)))
+	      dst))))
+
+(define (compile-inits inits env si)
+  (if (null? inits)
+      inits
+      (let ((init (car inits)))
+	(emit
+	 (compile init env si %eax)
+	 (emit-stack-save si)
+	 (compile-inits (cdr inits) env (- si $wordsize))))))
 
 ;;;
 ;; == Procedure
+
+(define (make-environment free locals) (cons free locals))
+(define (env-local env) (cdr env))
+(define (env-free env) (car env))
 
 (define (clambda? exp) (and (pair? exp) (eq? 'lambda (car exp))))
 (define clambda-formals cadr)
@@ -324,7 +410,6 @@
 	(emit "    movl %eax, " offset "(%ebp)")
 	(compile-lambda-free (cdr frees) env si (+ offset $wordsize)))))
 
-(define (make-closed-env) 12)
 
 (define (compile-entry exp env si dst)
   (let ((body (clambda-body exp))
@@ -343,29 +428,49 @@
 			 (bind-closed-var free offset env)
 			 (+ offset $wordsize)))))
 
+(define (lookup-lambda-offset exp env)
+  (if (null? exp)
+      (error "lambda code not found in env ~a" exp)
+      (let ((entry (car env)))
+	(if (and (eq? (car entry) 'lambda)
+		 (eq? (cadr entry) exp))
+	    0
+	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
+  
 (define (compile-lambda exp env si dst)
-  (let ((formals (clambda-formals exp))
-	(body (clambda-body exp))
-	(label-entry (unique-label))
-	(label-end (unique-label)))
-    (emit "    jmp " label-end)
-    (emit label-entry":")
-    (let f ((formals formals)
-	    (si (- 0 $wordsize))
-	    (env env))
-      (if (null? formals)
-	  (compile-entry exp (make-closed-env (clambda-free exp) env (- (* 2 $wordsize) $closure-tag)) si %eax)
-	  (f (cdr formals)
-	     (- si $wordsize)
-	     (bind-var (car formals) si env))))
-    (emit "    ret")
-    (emit label-end":")
-    (compile-lambda-free (clambda-free exp) env si (* 2 $wordsize))
-    (emit "    movl $" (* (+ (length (clambda-free exp)) 2) $wordsize) ", (%ebp)")
-    (emit "    movl $" label-entry ", " $wordsize "(%ebp)")
-    (emit "    movl %ebp, " dst)
-    (emit "    addl $" (* $wordsize (+ (length (clambda-free exp)) 2)) ", %ebp")
-    (emit "    addl $" $closure-tag ", " dst)))
+  (let* ((free (free-variables exp))
+	 (free-len (length free))
+	 (depth (lookup-lambda-offset exp (env-free env))))
+    (emit
+     (x86-movl ($ (+ (length free) 2)) (^ 0 %ebp))
+     (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
+     (x86-movl %eax (^ $wordsize %ebp))
+     (x86-movl %ebp dst)
+     (x86-orl ($ $closure-tag) dst)
+     (x86-addl ($ (* $wordsize (+ 2 free-len))) %ebp))))
+
+  ;; (let ((formals (clambda-formals exp))
+  ;; 	(body (clambda-body exp))
+  ;; 	(label-entry (unique-label))
+  ;; 	(label-end (unique-label)))
+  ;;   (emit "    jmp " label-end)
+  ;;   (emit label-entry":")
+  ;;   (let f ((formals formals)
+  ;; 	    (si (- 0 $wordsize))
+  ;; 	    (env env))
+  ;;     (if (null? formals)
+  ;; 	  (compile-entry exp (make-closed-env (clambda-free exp) env (- (* 2 $wordsize) $closure-tag)) si %eax)
+  ;; 	  (f (cdr formals)
+  ;; 	     (- si $wordsize)
+  ;; 	     (bind-var (car formals) si env))))
+  ;;   (emit "    ret")
+  ;;   (emit label-end":")
+  ;;   (compile-lambda-free (clambda-free exp) env si (* 2 $wordsize))
+  ;;   (emit "    movl $" (* (+ (length (clambda-free exp)) 2) $wordsize) ", (%ebp)")
+  ;;   (emit "    movl $" label-entry ", " $wordsize "(%ebp)")
+  ;;   (emit "    movl %ebp, " dst)
+  ;;   (emit "    addl $" (* $wordsize (+ (length (clambda-free exp)) 2)) ", %ebp")
+  ;;   (emit "    addl $" $closure-tag ", " dst)))
 
 ;;;
 ;; == Letrec
@@ -385,7 +490,7 @@
 ;;     (compile-function (letrec-body exp) env (- 0 $wordsize) "L_scheme_entry")))
 
 ;;;
-;; == Procedure call
+;; ### Procedure call
 
 (define call? pair?)
 (define call-arguments cdr)
@@ -394,19 +499,32 @@
 (define (compile-arguments args env si)
   (if (null? args)
       si
-      (begin
+      (emit
 	(compile (car args) env si %eax)
-	(emit "    movl %eax, " si "(%esp)")
+	(x86-movl %eax (^ si %esp))
 	(compile-arguments (cdr args) env (- si $wordsize)))))
 
 (define (compile-call exp env si dst)
-  (let ((si* (compile-arguments (call-arguments exp) env (- si $wordsize))))
-    (compile (call-target exp) env si* '%esi)
-    (emit "    movl $" (encode (length (call-arguments exp))) ", %edx")
-    (emit-adjust-base (+ si $wordsize))
-    (emit "    movl " (- $wordsize $closure-tag) "(%esi), %eax")
-    (emit "    call *%eax")
-    (emit-adjust-base (- 0 (+ si $wordsize)))))
+  (let* ((arguments (call-arguments exp))
+	 (argument-count (length arguments))
+	 (saved-closure-pointer-si (-  si $wordsize))
+	 (return-address-si (- si (* 2 $wordsize)))
+	 (call-label (unique-label)))
+    (emit
+     (x86-movl %esi (^ saved-closure-pointer %esp))
+     (compile-arguments (call-arguments exp) env return-address-si)
+     (compile (call-target exp) env si* %esi)
+     (x86-movl %esi %eax)
+     (x86-and ($ $closure-mask) %eax)
+     (x86-cmp ($ $closure-tag) %eax)
+     (x86-je call-label)
+     call-label
+     (x86-movl ($ (encode argument-count)) %edx)
+     (emit-adjust-base (+ si $wordsize))
+     (x86-movl (^ (- $wordsize $closure-tag) %esi) %eax)
+     (x86-call-*eax)
+     (emit-adjust-base (- 0 (+ si $wordsize)))
+     (x86-movl (^ saved-closure-pointer %esp) %esi))))
 
 ;;;
 ;; == Tests procedure
@@ -434,12 +552,17 @@
 					       ((%car fib*) fib* (%fx-1+ (%fx-1+ n)))))))))
 	     ((%car fib) fib 36)))))
 
+(define (test exp)
+  (let ((env (make-environment (free-variables exp) '())))
+    (assemble (compile-code exp env))))
+
 (define (scmc exp)
   (let ((stdout (current-output-port)))
     (with-output-to-file "code.fasl"
       (lambda ()
-        (let ((template (assemble (compile-code exp '()))))
-          (display ";; " stdout) (write template stdout) (newline stdout)
+        (let* ((env (make-environment (free-variables exp) '()))
+	       (template (assemble (compile-code exp env))))
+;          (display ";; " stdout) (write template stdout) (newline stdout)
           (write-fasl (make-closure template '()) (current-output-port)))))))
 
 (define (read-test-from-file file-name)
@@ -456,21 +579,37 @@
 (define (main args)
   (for-each compile-file args))
 
-(define (test-exp name exp)
-  (scmc (car exp))
-  (let ((result (run/string ("../runtime/rt" "code.fasl"))))
-    (if (string=? result (cdr exp))
+(define (test-exp description exp expected)
+  (scmc exp)
+  (let ((result (run/string (linux32 "../runtime/rt" "code.fasl"))))
+    (if (string=? result expected)
         (begin
-          (display "[OK!] ") (display name) (newline))
+          (display "  [OK!] ") (display description) (newline))
         (begin
-          (display "[ERR] ") (display name) (newline)))))
+          (display "  [ERR] ") (display description) 
+	  (display ", expected ") (write expected)
+	  (display ", got ") (write result) (newline)))))
 
 (define (run-test-suite)
   (let ((files (directory-files "../../test")))
     (for-each (lambda (fn)
-                (let ((test (read-test-from-file (string-append "../../test/" fn))))
-                  (test-exp fn exp)))
-              files)))
+		(if (string=? ".sexp" (file-name-extension fn))
+		    (run-tests-in-file fn)
+		    #f))	      
+	      files)))
+
+(define (run-tests-in-file fn)
+  (display "Running test from ") (display fn) (newline)
+  (call-with-input-file (string-append "../../test/" fn)
+    (lambda (p)
+      (let lp ((test (read-test-from-port p)))
+	(if (eof-object? test)
+	    (newline)
+	    (begin
+	      (test-exp (car test) (cadr test) (caddr test))
+	      (lp (read-test-from-port p))))))))
+
+(define (read-test-from-port port) (read port))
 
 ;;; FASL support
 
@@ -479,6 +618,13 @@
 (define $fasl/number 2)
 (define $fasl/closure 3)
 (define $fasl/symbol 4)
+(define $fasl/string 5)
+(define $fasl/char 6)
+(define $fasl/null 7)
+(define $fasl/unbound 8)
+(define $fasl/unspecific 9)
+(define $fasl/vector 10)
+(define $fasl/pair 11)
 
 (define (write-fasl code port)
   ;(debug 'write-fasl code)
@@ -487,6 +633,13 @@
         ((number? code) (write-fasl-number code port))
         ((closure? code) (write-fasl-closure code port))
         ((symbol? code) (write-fasl-symbol code port))
+	((string? code) (write-fasl-string code port))
+	((char? code) (write-fasl-char code port))
+	((null? code) (write-fasl-null code port))
+	((unbound-object? code) (write-fasl-unbound code port))
+	((unspecific-object? code) (write-fasl-unspecific code port))
+	((vector? code) (write-fasl-vector code port))
+	((pair? code) (write-fasl-pair? code port))
         (else (error "don't know how to write fasl ~a" code))))
 
 (define (write-fasl-template code port)
@@ -531,7 +684,43 @@
       (write-u8 port (+ 128 code))
       (error "write too big number ~a" code)))
 
-(define (u8->char u8) (integer->char (+ u8 -32 (char->integer #\space))))
+(define (write-fasl-string str port)
+  (write-u8 port $fasl/string)
+  (write-u32 port (string-length str))
+  (let lp ((i 0))
+    (if (< i (string-length str))
+	(let ((ch (string-ref str i)))
+	  (write-u8 port (char->ascii ch))
+	  (lp (+ i 1))))))
+
+(define (write-fasl-char char port)
+  (write-u8 port $fasl/char)
+  (write-u8 port (char->ascii char)))
+
+(define (write-fasl-null null port)
+  (write-u8 port $fasl/null))
+
+(define (write-fasl-unbound unbound port)
+  (write-u8 port $fasl/unbound))
+
+(define (write-fasl-unspecific unspecific port)
+  (write-u8 port $fasl/unspecific))
+
+(define (write-fasl-vector vec port)
+  (write-u8 port $fasl/vector)
+  (write-u32 port (vector-length vec))
+  (let lp ((i 0))
+    (if (< i (vector-length vec))
+	(let ((obj (vector-ref vec i)))
+	  (write-fasl obj port)
+	  (lp (+ i 1))))))
+
+(define (write-fasl-pair pair port)
+  (write-u8 port $fasl/pair)
+  (write-fasl (car pair) port)
+  (write-fasl (cdr pair) port))
+
+(define (u8->char u8) (integer->char (+ u8 (+ -32 (char->integer #\space)))))
 
 (define (make-template size) (vector 'template (make-vector size 0)))
 (define (make-template* code) (vector 'template code))

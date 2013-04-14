@@ -1,7 +1,7 @@
 	.file	"fib.c"
 	.text
 .globl _fib
-	.def	_fib;	.scl	2;	.type	32;	.endef
+#	.def	_fib;	.scl	2;	.type	32;	.endef
 _fib:
 	pushl	%ebp
 	movl	%esp, %ebp
@@ -9,12 +9,35 @@ _fib:
 	subl	$20, %esp
         movl    $1234, %eax
 	cmpl	$1, 8(%ebp)
-	jg	L2
+	jg	L3
         je      L2
         jne     L2
-        jl      L2
+        jl      LL3
         cmp     $2, %al
-        addl    $7, %eax
+	movl	%eax,8(%esp)
+	movl	8(%esp),%eax
+	movl	%ebp,%eax
+	movl	%eax,8(%ebp)
+	movl	8(%esi),%eax
+	movl	$8, (%ebp)
+	cmpl	$34, %eax
+	shll	$3, %eax
+	orl	$3, %eax
+	or	$3, %al
+	xorl	$3, %eax
+	andl	$3, %eax
+	and	$3, %al
+	addl	$4,%ebp
+	addl	$1, %eax
+	addl	4(%esp), %eax
+	subl	$3, %eax
+	subl	4(%esp), %eax
+	sal	$3, %al
+	sall	$3, %eax
+	setl	%al
+	cmp	%eax, 4(%esp)
+LL3:
+	addl    $7, %eax
         shll    $7, %eax
         orl     $7, %eax
         and     $8, %al
@@ -42,9 +65,9 @@ L3:
 	popl	%ebx
 	popl	%ebp
 	ret
-	.def	___main;	.scl	2;	.type	32;	.endef
+#	.def	___main;	.scl	2;	.type	32;	.endef
 .globl _main
-	.def	_main;	.scl	2;	.type	32;	.endef
+#	.def	_main;	.scl	2;	.type	32;	.endef
 _main:
 	pushl	%ebp
 	movl	% esp, %ebp
