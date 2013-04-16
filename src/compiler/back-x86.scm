@@ -338,7 +338,8 @@
 	       (compile-free-variable binding si dst))
 	      ((global-binding? binding)
 	       (compile-global-variable binding si dst))
-	      (else (error "unknown binding kind ~a" binding))))))
+	      (else (error "unknown binding kind ~a" binding)))
+	(error "couldn't find a binding for var ~a " exp))))
 
 (define (compile-local-variable binding si dst)
   (emit
@@ -354,7 +355,7 @@
     (emit
      (x86-movl (^ (global-binding-depth binding) %esi) dst)
      (x86-movl (^ (- (* 2 $wordsize) $pair-tag) dst) dst)
-     (x86-cmpl ($ $immediate-unbound) %dst)
+     (x86-cmpl ($ $immediate-unbound) dst)
      (x86-jne end-label)
      end-label)))
 
@@ -406,27 +407,43 @@
   (if (null? frees)
       'ok
       (let ((free (car frees)))
-	(compile free env si %eax)
-	(emit "    movl %eax, " offset "(%ebp)")
-	(compile-lambda-free (cdr frees) env si (+ offset $wordsize)))))
+	(emit
+	 (cond ((eq? (car free) 'lit)
+		(compile-lambda-free-lit free env si offset))
+	       ((eq? (car free) 'var)
+		(compile-lambda-free-var free env si offset))
+	       ((eq? (car free) 'lambda)
+		(compile-lambda-free-var free env si offset))
+	       (else (error "unknown closed over variable ~a" free)))
+	 (compile-lambda-free (cdr frees) env si (+ offset $wordsize))))))
 
+(define (compile-lambda-free-lit lit env si offset)
+  (let ((depth (lookup-lit-offset lit env)))
+    (emit (x86-movl (^ depth %esi) %eax)
+	  (x86-movl %eax (^ offset %ebp)))))
 
-(define (compile-entry exp env si dst)
-  (let ((body (clambda-body exp))
-	(formals (clambda-formals exp))
-	(ok-label (unique-label)))
-    (emit "    cmpl $" (length formals) ", %edx")
-    (emit "    je " ok-label)
-    (emit ok-label ":")
-    (compile body env si dst)))
+(define (compile-lambda-free-var var env si offset)
+  (let ((binding (lookup-variable (cadr var) env)))
+    (if binding
+	(cond ((local-binding? binding)
+	       (emit
+		(compile-local-variable binding si %eax)
+		(x86-movl %eax (^ offset %ebp))))
+	      ((free-binding? binding)
+	       (emit
+		(compile-free-variable binding si %eax)
+		(x86-movl %eax (^ offset %ebp))))
+	      ((global-binding? binding)
+	       (emit
+		(compile-global-variable binding si %eax)
+		(x86-movl %eax (^ offset %ebp))))
+	      (else (error "unknown free binding kind ~a" binding)))
+	(error "couldn't find a free binding for var ~a " exp))))
 
-(define (make-closed-env frees env offset)
-  (if (null? frees)
-      env
-      (let ((free (car frees)))
-	(make-closed-env (cdr frees)
-			 (bind-closed-var free offset env)
-			 (+ offset $wordsize)))))
+(define (compile-lambda-free-lambda lam env si offset)
+  (let ((depth (lookup-lambda-offset (cadr lam) env (env-free env))))
+    (emit (x86-movl (^ depth %esi) %eax)
+	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lambda-offset exp env)
   (if (null? exp)
@@ -444,33 +461,11 @@
     (emit
      (x86-movl ($ (+ (length free) 2)) (^ 0 %ebp))
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
+     (compile-lambda-free (free-variables exp) env si (* 2 $wordsize))
      (x86-movl %eax (^ $wordsize %ebp))
      (x86-movl %ebp dst)
      (x86-orl ($ $closure-tag) dst)
      (x86-addl ($ (* $wordsize (+ 2 free-len))) %ebp))))
-
-  ;; (let ((formals (clambda-formals exp))
-  ;; 	(body (clambda-body exp))
-  ;; 	(label-entry (unique-label))
-  ;; 	(label-end (unique-label)))
-  ;;   (emit "    jmp " label-end)
-  ;;   (emit label-entry":")
-  ;;   (let f ((formals formals)
-  ;; 	    (si (- 0 $wordsize))
-  ;; 	    (env env))
-  ;;     (if (null? formals)
-  ;; 	  (compile-entry exp (make-closed-env (clambda-free exp) env (- (* 2 $wordsize) $closure-tag)) si %eax)
-  ;; 	  (f (cdr formals)
-  ;; 	     (- si $wordsize)
-  ;; 	     (bind-var (car formals) si env))))
-  ;;   (emit "    ret")
-  ;;   (emit label-end":")
-  ;;   (compile-lambda-free (clambda-free exp) env si (* 2 $wordsize))
-  ;;   (emit "    movl $" (* (+ (length (clambda-free exp)) 2) $wordsize) ", (%ebp)")
-  ;;   (emit "    movl $" label-entry ", " $wordsize "(%ebp)")
-  ;;   (emit "    movl %ebp, " dst)
-  ;;   (emit "    addl $" (* $wordsize (+ (length (clambda-free exp)) 2)) ", %ebp")
-  ;;   (emit "    addl $" $closure-tag ", " dst)))
 
 ;;;
 ;; == Letrec
@@ -511,9 +506,9 @@
 	 (return-address-si (- si (* 2 $wordsize)))
 	 (call-label (unique-label)))
     (emit
-     (x86-movl %esi (^ saved-closure-pointer %esp))
+     (x86-movl %esi (^ saved-closure-pointer-si %esp))
      (compile-arguments (call-arguments exp) env return-address-si)
-     (compile (call-target exp) env si* %esi)
+     (compile (call-target exp) env si %esi)
      (x86-movl %esi %eax)
      (x86-and ($ $closure-mask) %eax)
      (x86-cmp ($ $closure-tag) %eax)
@@ -524,7 +519,7 @@
      (x86-movl (^ (- $wordsize $closure-tag) %esi) %eax)
      (x86-call-*eax)
      (emit-adjust-base (- 0 (+ si $wordsize)))
-     (x86-movl (^ saved-closure-pointer %esp) %esi))))
+     (x86-movl (^ saved-closure-pointer-si %esp) %esi))))
 
 ;;;
 ;; == Tests procedure
@@ -639,7 +634,7 @@
 	((unbound-object? code) (write-fasl-unbound code port))
 	((unspecific-object? code) (write-fasl-unspecific code port))
 	((vector? code) (write-fasl-vector code port))
-	((pair? code) (write-fasl-pair? code port))
+	((pair? code) (write-fasl-pair code port))
         (else (error "don't know how to write fasl ~a" code))))
 
 (define (write-fasl-template code port)

@@ -28,6 +28,14 @@
 #define STRING_TAG     0x06
 #define STRING_SHIFT   3
 
+#define TEMPLATE_MASK  0x07
+#define TEMPLATE_TAG   0x04
+#define TEMPLATE_SHIFT 3
+
+#define REF_MASK       0x07
+#define REF_TAG        0x05
+#define REF_SHIFT      3
+
 #define CHAR_MASK      0xff
 #define CHAR_TAG       0x0f
 
@@ -37,8 +45,8 @@
 
 #define WORDSIZE       4
 
-typedef intptr_t obj_t ;
-typedef intptr_t header_t ;
+typedef uintptr_t obj_t ;
+typedef uintptr_t header_t ;
 
 /* Object layout
  * 00000000000000 000000 00 -> integers
@@ -136,13 +144,8 @@ ref_t *make_ref(obj_t val) {
   return ref ;
 }
 
-obj_t tag(void *ptr) {
-  return (((obj_t) ptr) << 2)+1 ;
-}
-
-obj_t *untag(obj_t obj) {
-  return (obj_t *) ((obj - 1) >> 2) ;
-}
+obj_t tag(void *ptr, uint8_t tag) {return (((obj_t) ptr))+tag ; }
+obj_t *untag(obj_t obj, uint8_t tag) { return (obj_t *) ((obj - tag)) ; }
 
 typedef struct {
   void* eax ; /* scratch */
@@ -167,12 +170,19 @@ static char* alloc_protected_space(int size)
   int status ;
   int aligned_size = ((size + page - 1) / page) * page ;
   char *p = mmap(0, aligned_size+2*page, PROT_READ|PROT_WRITE|PROT_EXEC,
-		 MAP_ANONYMOUS | MAP_PRIVATE,
-		 0,0) ;
+  		 MAP_ANONYMOUS | MAP_PRIVATE,
+  		 0,0) ;
+  /* char *p ; */
+  /* int rc = posix_memalign(&p, 8, aligned_size) ; */
   if (p == MAP_FAILED) {
     perror("could not allocate memory") ; 
     _exit(1) ;
   }
+
+  if (((obj_t) (p)) & 0x07 != 0) {
+    printf("Allocation not aligned\n") ; _exit(1) ;
+  }
+    
   status = mprotect(p, page, PROT_NONE) ;
   if (status != 0) {
     perror("could not protect begin of allocated memory") ;
@@ -180,16 +190,16 @@ static char* alloc_protected_space(int size)
     _exit(1) ;
   }
   status = mprotect(p + page + aligned_size, page, PROT_NONE) ;
-  if (status != 0) { 
-    printf("could not protect begin of allocated memory") ; _exit(1) ; 
+  if (status != 0) {
+    printf("could not protect begin of allocated memory") ; _exit(1) ;
   }
-  return p+page ;
+  return p+page;
 }
 
 static obj_t *alloc(size_t size) {
   if (heap_free+size < heap_limit) {
     obj_t *obj = (obj_t *) heap_free ;
-    heap_free += size ;
+    heap_free += ((size+7) / 8) * 8 ;
     return (obj_t *) obj ;
   } else {
     printf("HEAP ALLOCATION ERROR FOR %d", size) ; _exit(1) ;
@@ -233,11 +243,11 @@ static void print_scm_pair(unsigned int x)
   printf(")") ;
 }
 
-static void print_scm_obj(unsigned int x)
+static void print_scm_obj(obj_t x)
 {
   if ((x & FX_MASK) == FX_TAG) { printf("%d", ((int) x) >> FX_SHIFT) ; }
   else if ((x & PAIR_MASK) == PAIR_TAG) { print_scm_pair(x) ; }
-  else if ((x & CLOSURE_MASK) == CLOSURE_TAG) { printf("#{closure 0x%08x", x) ; }
+  else if ((x & CLOSURE_MASK) == CLOSURE_TAG) { printf("#{closure 0x%08x}", x) ; }
   else if ((x & SYMBOL_MASK) == SYMBOL_TAG) { printf("%s", (char *) (x-SYMBOL_TAG+WORDSIZE)) ; }
   else if ((x & VECTOR_MASK) == VECTOR_TAG) { print_scm_vector(x) ; }
   else if ((x & STRING_MASK) == STRING_TAG) { printf("\"%s\"", (char *) (x-STRING_TAG+WORDSIZE)) ; }
@@ -271,7 +281,8 @@ int main(int ac, char *av[])
   int fd = open(av[1], O_RDONLY) ;
   obj_t closure = read_fasl(fd) ;
 
-  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure), stack_base-WORDSIZE, heap_free) ;
+  obj_t result = scheme_entry(&ctx, (obj_t) untag(closure, CLOSURE_TAG),
+			      stack_base-WORDSIZE, heap_free) ;
   print_scm_obj(result) ;
 
   return 0 ;
@@ -340,12 +351,12 @@ obj_t read_template(int fd)
     template->code[i] = byte ;
   }
 
-  return tag(template) ;
+  return tag(template, TEMPLATE_TAG) ;
 }
 
 obj_t read_ref(int fd)
 {
-  return tag(make_ref(OBJ_UNSPECIFIC)) ;
+  return tag(make_ref(OBJ_UNSPECIFIC), REF_TAG) ;
 }
 
 obj_t read_number(int fd)
@@ -361,7 +372,7 @@ obj_t read_closure(int fd)
 
   closure_t *closure = make_closure(n) ;
 
-  template_t *template = (template_t *) untag(read_fasl(fd)) ;
+  template_t *template = (template_t *) untag(read_fasl(fd), TEMPLATE_TAG) ;
   closure->closed[0] = (obj_t) &template->code ;
   
   int i ;
@@ -369,7 +380,7 @@ obj_t read_closure(int fd)
     closure->closed[i] = read_fasl(fd) ;
   }
   
-  return tag(closure) ;
+  return tag(closure, CLOSURE_TAG) ;
 }
 
 obj_t read_symbol(int fd)
@@ -382,6 +393,6 @@ obj_t read_symbol(int fd)
   for (i = 0 ; i < len ; i++)
     symbol->ch[i] = read_u8(fd) ;
 
-  return tag(symbol) ;
+  return tag(symbol, SYMBOL_TAG) ;
 }
 

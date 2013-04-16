@@ -3,7 +3,8 @@
 (define-structure native-compiler
   (export)
   (open scheme scsh)
-  (files arch-x86
+  (files compat-s48
+	 arch-x86
 	 asm-x86
 	 front
 	 back-x86))
