@@ -35,13 +35,16 @@
 (define (literal? obj)
   (or (number? obj) (char? obj) (boolean? obj) (null? obj) 
       (unspecific-object? obj) (unbound-object? obj) (eof-object? obj)
+      (string? obj)
       (and (pair? obj) (eq? 'quote (car obj)))))
 
 (define (compile-literal exp env si dst)
   (if (literal-immediate? exp)
       (emit
        (x86-movl ($ (encode exp)) dst))
-      (error "unsupported complex literal ~a" exp)))
+      (let ((depth (* $wordsize (+ 2 (lookup-lit-offset (literal-complex-value exp)
+							(env-free env))))))
+	(emit (x86-movl (^ depth %esi) dst)))))
 
 ;;;
 ;; == Conditional expressions
@@ -348,7 +351,7 @@
 
 (define (compile-free-variable binding si dst)
   (emit
-   (x86-movl (^ (* $wordsize (+ 1 (free-binding-depth binding))) %esi) dst)))
+   (x86-movl (^ (* $wordsize (+ 2 (free-binding-depth binding))) %esi) dst)))
 
 (define (compile-global-variable binding si dst)
   (let ((end-label (unique-label)))
@@ -400,12 +403,11 @@
 
 (define (clambda? exp) (and (pair? exp) (eq? 'lambda (car exp))))
 (define clambda-formals cadr)
-(define clambda-free caddr)
-(define clambda-body cadddr)
+(define clambda-body caddr)
 
 (define (compile-lambda-free frees env si offset)
   (if (null? frees)
-      'ok
+      '()
       (let ((free (car frees)))
 	(emit
 	 (cond ((eq? (car free) 'lit)
@@ -413,17 +415,26 @@
 	       ((eq? (car free) 'var)
 		(compile-lambda-free-var free env si offset))
 	       ((eq? (car free) 'lambda)
-		(compile-lambda-free-var free env si offset))
+		(compile-lambda-free-lambda free env si offset))
 	       (else (error "unknown closed over variable ~a" free)))
 	 (compile-lambda-free (cdr frees) env si (+ offset $wordsize))))))
 
 (define (compile-lambda-free-lit lit env si offset)
-  (let ((depth (lookup-lit-offset lit env)))
+  (let ((depth (lookup-lit-offset lit (env-free env))))
     (emit (x86-movl (^ depth %esi) %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
+(define (lookup-lit-offset exp env)
+  (if (null? env)
+      (error "literal not found in env ~a" exp)
+      (let ((entry (car env)))
+	(if (and (eq? (car entry) 'lit)
+		 (eq? (cadr entry) exp))
+	    0
+	    (+ 1 (lookup-lit-offset exp (cdr env)))))))
+
 (define (compile-lambda-free-var var env si offset)
-  (let ((binding (lookup-variable (cadr var) env)))
+  (let ((binding (lookup-variable (cadr var) (env-free env))))
     (if binding
 	(cond ((local-binding? binding)
 	       (emit
@@ -441,19 +452,19 @@
 	(error "couldn't find a free binding for var ~a " exp))))
 
 (define (compile-lambda-free-lambda lam env si offset)
-  (let ((depth (lookup-lambda-offset (cadr lam) env (env-free env))))
+  (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
     (emit (x86-movl (^ depth %esi) %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lambda-offset exp env)
-  (if (null? exp)
+  (if (null? env)
       (error "lambda code not found in env ~a" exp)
       (let ((entry (car env)))
 	(if (and (eq? (car entry) 'lambda)
 		 (eq? (cadr entry) exp))
 	    0
 	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
-  
+
 (define (compile-lambda exp env si dst)
   (let* ((free (free-variables exp))
 	 (free-len (length free))
@@ -493,7 +504,7 @@
 
 (define (compile-arguments args env si)
   (if (null? args)
-      si
+      '()
       (emit
 	(compile (car args) env si %eax)
 	(x86-movl %eax (^ si %esp))
@@ -510,8 +521,8 @@
      (compile-arguments (call-arguments exp) env return-address-si)
      (compile (call-target exp) env si %esi)
      (x86-movl %esi %eax)
-     (x86-and ($ $closure-mask) %eax)
-     (x86-cmp ($ $closure-tag) %eax)
+     (x86-andl ($ $closure-mask) %eax)
+     (x86-cmpl ($ $closure-tag) %eax)
      (x86-je call-label)
      call-label
      (x86-movl ($ (encode argument-count)) %edx)
@@ -551,6 +562,22 @@
   (let ((env (make-environment (free-variables exp) '())))
     (assemble (compile-code exp env))))
 
+(define (toplevel-environment env)
+  (map (lambda (e)
+	 (cond ((eq? 'lit (car e)) (toplevel-environment-lit e))
+	       ((eq? 'var (car e)) (toplevel-environment-var e))
+	       ((eq? 'lambda (car e)) (toplevel-environment-lambda e))
+	       (else (error "unknown free element ~a" e))))
+       (env-free env)))
+
+(define (toplevel-environment-lit e) (cadr e))
+(define (toplevel-environment-var e) (cons (cadr e) #f))
+(define (toplevel-environment-lambda e)
+  (let* ((exp (cadr e))
+	 (args (clambda-formals exp))
+	 (body (clambda-body exp)))
+    (assemble (compile-code body (make-environment (free-variables exp) args)))))
+
 (define (scmc exp)
   (let ((stdout (current-output-port)))
     (with-output-to-file "code.fasl"
@@ -558,7 +585,9 @@
         (let* ((env (make-environment (free-variables exp) '()))
 	       (template (assemble (compile-code exp env))))
 ;          (display ";; " stdout) (write template stdout) (newline stdout)
-          (write-fasl (make-closure template '()) (current-output-port)))))))
+          (write-fasl (make-closure template 
+				    (toplevel-environment env))
+		      (current-output-port)))))))
 
 (define (read-test-from-file file-name)
   (with-input-from-file file-name
@@ -614,12 +643,14 @@
 (define $fasl/closure 3)
 (define $fasl/symbol 4)
 (define $fasl/string 5)
-(define $fasl/char 6)
-(define $fasl/null 7)
-(define $fasl/unbound 8)
-(define $fasl/unspecific 9)
-(define $fasl/vector 10)
-(define $fasl/pair 11)
+(define $fasl/null 6)
+(define $fasl/unbound 7)
+(define $fasl/unspecific 8)
+(define $fasl/vector 9)
+(define $fasl/true 10)
+(define $fasl/false 11)
+(define $fasl/pair 12)
+(define $fasl/char 13)
 
 (define (write-fasl code port)
   ;(debug 'write-fasl code)
@@ -631,11 +662,16 @@
 	((string? code) (write-fasl-string code port))
 	((char? code) (write-fasl-char code port))
 	((null? code) (write-fasl-null code port))
+	((eq? code #t) (write-fasl-boolean code port))
+	((eq? code #f) (write-fasl-boolean code port))
 	((unbound-object? code) (write-fasl-unbound code port))
 	((unspecific-object? code) (write-fasl-unspecific code port))
 	((vector? code) (write-fasl-vector code port))
 	((pair? code) (write-fasl-pair code port))
         (else (error "don't know how to write fasl ~a" code))))
+
+(define (write-fasl-boolean code port)
+  (write-u8 port (if code $fasl/true $fasl/false)))
 
 (define (write-fasl-template code port)
   (write-u8 port $fasl/template)

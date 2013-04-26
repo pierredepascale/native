@@ -22,7 +22,7 @@
         ((if? exp) (assignment-convert-if exp env))
         ((set!? exp) (assignment-convert-set! exp env))
         ((let? exp) (assignment-convert-let exp env))
-        ((lambda? exp) (assignment-convert-lambda exp env))
+        ((clambda? exp) (assignment-convert-lambda exp env))
         ((primitive-call? exp) (assignment-convert-primitive-call exp env))
         ((call? exp) (assignment-convert-call exp env))
         (else (error "unknown expression ~a" exp))))
@@ -60,10 +60,10 @@
           (assignment-convert (let-body exp) env))))
 
 (define (assignment-convert-lambda exp env)
-  (list 'lambda (lambda-formals exp)
+  (list 'lambda (clambda-formals exp)
         (set->list (set-difference (free-variables exp)
-                                   (lambda-formals exp)))
-        (assignment-convert (lambda-body exp) env)))
+                                   (clambda-formals exp)))
+        (assignment-convert (clambda-body exp) env)))
 
 ;;;
 ;; == Setted variables
@@ -79,7 +79,7 @@
         ((if? exp) (setted-variables-if exp))
         ((set!? exp) (setted-variables-set! exp))
         ((let? exp) (setted-variables-let exp))
-        ((lambda? exp) (setted-variables-lambda exp))
+        ((clambda? exp) (setted-variables-lambda exp))
         ((primitive-call? exp) (setted-variables-primitive-call exp))
         ((call? exp) (setted-variables-call exp))
         (else (error "free variables unknwon expression ~a" exp))))
@@ -115,7 +115,7 @@
     (setted-variables* (cons (let-body exp) (map bindings-init bindings)))))
 
 (define (setted-variables-lambda exp)
-  (setted-variables (lambda-body exp)))
+  (setted-variables (clambda-body exp)))
 
 ;;;
 ;; ## Free variable
@@ -133,8 +133,8 @@
 (define (free-variables* exps)
   (if (null? exps)
       (set-empty)
-      (set-union (free-variables (car exp))
-                 (free-variables* (cdr exp)))))
+      (set-union (free-variables (car exps))
+                 (free-variables* (cdr exps)))))
 
 ;;;
 ;; ### Free variables in literals
@@ -148,10 +148,15 @@
       (unbound-object? exp)
       (eof-object? exp)))
 
+(define (literal-complex-value exp)
+  (if (string? exp)
+      exp
+      (cadr exp)))
+
 (define (free-variables-literal exp)
   (if (literal-immediate? exp)
       (set-empty)
-      (set-singleton (list 'lit exp))))
+      (set-singleton (list 'lit (literal-complex-value exp)))))
 
 ;;;
 ;; ### Free variable in variable
@@ -174,7 +179,7 @@
   (free-variables* (cdr exp)))
 
 ;;;
-;; ##3 Free variable in calling procedures
+;; ### Free variable in calling procedures
 
 (define (free-variables-call exp)
   (free-variables* exp))
@@ -263,7 +268,7 @@
 	((if? exp) (literal-convert-if exp))
 	((let? exp) (literal-convert-let exp))
 	((begin? exp) (literal-convert-begin exp))
-	((lambda? exp) (literal-convert-lambda exp))
+	((clambda? exp) (literal-convert-lambda exp))
 	((primitive-call? exp) (literal-convert-primitive-call exp))
 	((call? exp) (literal-convert-call exp))
 	(else (error "unknown expression ~a" exp))))

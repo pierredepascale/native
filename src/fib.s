@@ -19,7 +19,7 @@ _fib:
 	movl	%ebp,%eax
 	movl	%eax,8(%ebp)
 	movl	8(%esi),%eax
-	movl	$8, (%ebp)
+	movl	$8, 4(%ebp)
 	cmpl	$34, %eax
 	shll	$3, %eax
 	orl	$3, %eax
@@ -32,10 +32,21 @@ _fib:
 	addl	4(%esp), %eax
 	subl	$3, %eax
 	subl	4(%esp), %eax
+	movl	%esi, 8(%esp)
+	addl	$8, %esp
+	movl	%ebp, %esi
+	movl	$4, %edx
+	movl	%esi, %eax
+	movl	-8(%esp), %esi
+	movl	8(%esi), %esi
+	orl	$2, %esi
+	cmp	$2, %eax
+	movl	$2, %edx
 	sal	$3, %al
 	sall	$3, %eax
 	setl	%al
 	cmp	%eax, 4(%esp)
+	movl	$4, %esi
 LL3:
 	addl    $7, %eax
         shll    $7, %eax

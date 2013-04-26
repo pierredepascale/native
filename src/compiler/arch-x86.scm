@@ -6,7 +6,10 @@
 (define $fx-mask  #x03)
 (define $fx-tag   #b00)
 
-(define $fx-bits (- (* $wordsize 8) $fx-shift))
+(define $fx-lower -536870912)
+(define $fx-upper 536870911)
+
+(define $fx-bits (- (* $wordsize 4) $fx-shift))
 
 (define $pair-shift 3)
 (define $pair-mask  #x07)
@@ -52,10 +55,13 @@
 (define (immediate? x)
   (or (fixnum? x) (boolean? x)))
 
+(define (char-code ch)
+  (- (+ 32 (char->integer ch)) (char->integer #\space)))
+
 (define (encode obj)
   (cond ((integer? obj) (* obj 4))
 	((boolean? obj) (if obj $immediate-true $immediate-false))
-	((char? obj) (+ $char-tag (* 256 (char->integer obj))))
+	((char? obj) (+ $char-tag (* 256 (char-code obj))))
 	((null? obj) $immediate-nil)
 	((eof-object? obj) $immediate-eof)
 	((unspecific-object? obj) $immediate-unspecific)
