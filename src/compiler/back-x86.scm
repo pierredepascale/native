@@ -7,8 +7,10 @@
 ;; gcc -m32 -o scm rt.c scheme.S entry_x86.S
 
 (define (compile-code exp env)
-  (emit (compile exp env (- 0 $wordsize) %eax)
-        (x86-ret)))
+  (let ((si (- 0 (* (+ 1 (length (env-local env))) $wordsize))))
+;    (display ";; compiling code with env ") (display si) (newline)   
+    (emit (compile exp env si %eax)
+	  (x86-ret))))
 
 (define (compile exp env si dst)
   (cond ((literal? exp) (compile-literal exp env si dst))
@@ -421,7 +423,7 @@
 
 (define (compile-lambda-free-lit lit env si offset)
   (let ((depth (lookup-lit-offset lit (env-free env))))
-    (emit (x86-movl (^ depth %esi) %eax)
+    (emit (x86-movl (^ (* (+ 2 depth) $wordsize) %esi) %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lit-offset exp env)
@@ -434,22 +436,8 @@
 	    (+ 1 (lookup-lit-offset exp (cdr env)))))))
 
 (define (compile-lambda-free-var var env si offset)
-  (let ((binding (lookup-variable (cadr var) (env-free env))))
-    (if binding
-	(cond ((local-binding? binding)
-	       (emit
-		(compile-local-variable binding si %eax)
-		(x86-movl %eax (^ offset %ebp))))
-	      ((free-binding? binding)
-	       (emit
-		(compile-free-variable binding si %eax)
-		(x86-movl %eax (^ offset %ebp))))
-	      ((global-binding? binding)
-	       (emit
-		(compile-global-variable binding si %eax)
-		(x86-movl %eax (^ offset %ebp))))
-	      (else (error "unknown free binding kind ~a" binding)))
-	(error "couldn't find a free binding for var ~a " exp))))
+  (emit (compile-variable (cadr var) env si %eax)
+	(x86-movl %eax (^ offset %ebp))))
 
 (define (compile-lambda-free-lambda lam env si offset)
   (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
@@ -465,15 +453,17 @@
 	    0
 	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
 
+(define (header len code) (+ (* len 4) code))
 (define (compile-lambda exp env si dst)
   (let* ((free (free-variables exp))
 	 (free-len (length free))
 	 (depth (lookup-lambda-offset exp (env-free env))))
     (emit
-     (x86-movl ($ (+ (length free) 2)) (^ 0 %ebp))
+     (x86-movl ($ (header (+ (length free) 2) 0)) (^ 0 %ebp))
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
-     (compile-lambda-free (free-variables exp) env si (* 2 $wordsize))
+     (x86-addl ($ 7) %eax)
      (x86-movl %eax (^ $wordsize %ebp))
+     (compile-lambda-free (free-variables exp) env si (* 2 $wordsize))
      (x86-movl %ebp dst)
      (x86-orl ($ $closure-tag) dst)
      (x86-addl ($ (* $wordsize (+ 2 free-len))) %ebp))))
@@ -513,12 +503,13 @@
 (define (compile-call exp env si dst)
   (let* ((arguments (call-arguments exp))
 	 (argument-count (length arguments))
-	 (saved-closure-pointer-si (-  si $wordsize))
-	 (return-address-si (- si (* 2 $wordsize)))
+	 (saved-closure-pointer-si si)
+	 (return-address-si (- si $wordsize))
+	 (args-si (- return-address-si $wordsize))
 	 (call-label (unique-label)))
     (emit
      (x86-movl %esi (^ saved-closure-pointer-si %esp))
-     (compile-arguments (call-arguments exp) env return-address-si)
+     (compile-arguments (call-arguments exp) env args-si)
      (compile (call-target exp) env si %esi)
      (x86-movl %esi %eax)
      (x86-andl ($ $closure-mask) %eax)
@@ -526,10 +517,11 @@
      (x86-je call-label)
      call-label
      (x86-movl ($ (encode argument-count)) %edx)
-     (emit-adjust-base (+ si $wordsize))
+     (emit-adjust-base si)
      (x86-movl (^ (- $wordsize $closure-tag) %esi) %eax)
+     (x86-addl ($ (- 0 $closure-tag)) %esi)
      (x86-call-*eax)
-     (emit-adjust-base (- 0 (+ si $wordsize)))
+     (emit-adjust-base (- 0 si))
      (x86-movl (^ saved-closure-pointer-si %esp) %esi))))
 
 ;;;
@@ -583,11 +575,11 @@
     (with-output-to-file "code.fasl"
       (lambda ()
         (let* ((env (make-environment (free-variables exp) '()))
-	       (template (assemble (compile-code exp env))))
-;          (display ";; " stdout) (write template stdout) (newline stdout)
-          (write-fasl (make-closure template 
-				    (toplevel-environment env))
-		      (current-output-port)))))))
+	       (template (assemble (compile-code exp env)))
+	       (closure (make-closure template
+				      (toplevel-environment env))))
+;          (display ";; " stdout) (write closure stdout) (newline stdout)
+          (write-fasl closure (current-output-port)))))))
 
 (define (read-test-from-file file-name)
   (with-input-from-file file-name

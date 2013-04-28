@@ -465,6 +465,12 @@ obj_t read_template(int fd)
     template->code[i] = byte ;
   }
 
+  /* printf("template @ %08x:", template) ; */
+  /* for (i = 0 ; i < len ; i++) { */
+  /*   printf("%02x ", template->code[i]) ; */
+  /* } */
+  /* printf("\n") ; */
+
   return tag(template, PTR_TAG) ;
 }
 

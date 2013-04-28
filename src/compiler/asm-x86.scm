@@ -19,7 +19,7 @@
 
 (define (emit-adjust-base si)
   (if (= si 0)
-      (x86-addl ($ si) %esp)
+      (list)
       (x86-addl ($ si) %esp)))
 
 (define (flatten tree)
@@ -203,6 +203,8 @@
          (list #x83 #xc0 (x86-encode-8 (x86-immediate-value src))))
 	((and (x86-immediate? src) (eq? dst %esp))
 	 (list #x83 #xc4 (x86-encode-8 (x86-immediate-value src))))
+	((and (x86-immediate? src) (eq? dst %esi))
+	 (list #x83 #xc6 (x86-encode-8 (x86-immediate-value src))))
 	((and (x86-immediate? src) (eq? dst %ebp))
          (list #x83 #xc5 (x86-encode-8 (x86-immediate-value src))))
 	((and (x86-indirect? src) (eq? dst %eax))

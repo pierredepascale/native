@@ -199,12 +199,14 @@
 ;; ### Free variable in lambda expressions
 
 (define (free-variables-lambda exp)
-  (set-singleton (list 'lambda exp)))
+  (set-union (set-singleton (list 'lambda exp))
+	     (set-difference (free-variables (clambda-body exp))
+			     (list->set (clambda-formals exp)))))
 
 ;;;
 ;; == Set data structure
 ;;
-;; A Set is datastructure where elements appears only once (this is
+;; A Set a is datastructure where elements appears only once (this is
 ;; not the case for a list). Elements are compared with the `eq?`
 ;; predicate. Internally a set is represented as a list of elements.
 

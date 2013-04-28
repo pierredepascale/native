@@ -1,2 +1,5 @@
 ("basic lambda expression" (lambda (a) a) "#{closure}")
+("basic lambda expression with application" ((lambda () 1)) "1")
 ("basic application expression" ((lambda (a) a) 8) "8")
+("application with multiple parameters" ((lambda (a b) (%fx+ a b)) 1 2) "3")
+("application with free variables in closure" (let ((b 123)) ((lambda () b))) "123")
