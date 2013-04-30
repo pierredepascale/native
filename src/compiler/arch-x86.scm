@@ -2,6 +2,9 @@
 
 (define $wordsize 4)
 
+(define $primary-shift #x02)
+(define $primary-mask #x03)
+
 (define $fx-shift 2)
 (define $fx-mask  #x03)
 (define $fx-tag   #b00)
@@ -11,33 +14,28 @@
 
 (define $fx-bits (- (* $wordsize 4) $fx-shift))
 
-(define $pair-shift 3)
-(define $pair-mask  #x07)
-(define $pair-tag #b001)
+(define $closure-tag #x02)
+(define $imm-tag #x03)
+(define $ptr-tag #x01)
 
-(define $closure-shift 3)
-(define $closure-mask #x07)
-(define $closure-tag #b010)
-
-(define $symbol-shift 3)
-(define $symbol-mask #x07)
-(define $symbol-tag #b011)
-
-(define $vector-shift 3)
-(define $vector-mask  #x07)
-(define $vector-tag #b101)
-
-(define $string-shift 3)
-(define $string-mask #x07)
-(define $string-tag #b111)
-
-(define $bool-shift 8)
-(define $bool-bit 4)
-(define $bool-mask #b11101111)
-
-(define $char-shift 8)
+(define $char-shift #x08)
 (define $char-mask #xff)
 (define $char-tag #x0f)
+
+(define $secondary-mask  #x07)
+(define $secondary-shift #x03)
+
+(define $vector-tag     #x00)
+(define $string-tag     #x01)
+(define $symbol-tag     #x02)
+(define $bytevector-tag #x03)
+(define $template-tag   #x04)
+(define $pair-tag       #x05)
+(define $instance-tag   #x06)
+(define $forward-tag    #x07)
+
+(define $bool-bit 4)
+(define $bool-mask #b11101111)
 
 (define $immediate-mask       #xff)
 (define $immediate-shift      3)

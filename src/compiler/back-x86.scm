@@ -142,14 +142,13 @@
    (x86-cmp ($ (encode #f)) %al)
    (x86-sete %al)
    (x86-movzbl %al %eax)
-   (x86-xorl ($ (encode 1)) %eax)
    (x86-sal ($ $bool-bit) %al)
    (x86-or ($ $immediate-false) %al)
    (if (not (eq? dst %eax))
        (x86-movl %eax dst)
        (list))))
 
-(define-primitive (%boolean? env dst si arg)
+(define-primitive (%boolean? env si dst arg)
   (emit
    (compile arg env si %eax)
    (x86-and ($ $bool-mask) %al)
@@ -163,7 +162,17 @@
        (list))))
 
 (define-primitive (%char? env si dst arg)
-  (tagged-pointer-predicate env si dst arg $char-mask $char-tag))
+  (emit
+   (compile arg env si %eax)
+   (x86-and ($ $char-mask) %al)
+   (x86-cmp ($ $char-tag) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
 (define-primitive (%fx= env si dst arg1 arg2)
   (emit
@@ -182,7 +191,7 @@
 (define-primitive (%fxzero? env si dst arg)
   (emit
    (compile arg env si %eax)
-   (x86-cmp ($ (encode 0)) %eax)
+   (x86-cmpl ($ (encode 0)) %eax)
    (x86-sete %al)
    (x86-movzbl %al %eax)
    (x86-sal ($ $bool-bit) %al)
@@ -229,29 +238,37 @@
   (error "unimplemented %vector-set!"))
 
 (define-primitive (%vector? env si dst arg)
-  (tagged-pointer-predicate env si dst arg $vector-mask $vector-tag))
+  (tagged-pointer-predicate env si dst arg $vector-tag))
 
 (define-primitive (%pair? env si dst arg)
-  (tagged-pointer-predicate env si dst arg $pair-mask $pair-tag))
+  (tagged-pointer-predicate env si dst arg $pair-tag))
+
+(define-primitive (%symbol? env si dst arg)
+  (tagged-pointer-predicate env si dst arg $symbol-tag))
 
 (define-primitive (%cons env si dst arg1 arg2)
-  (compile arg1 env si %eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) %eax)
-  (emit "    movl %eax, " $wordsize "(%ebp)")
-  (emit "    movl " si "(%esp), %eax")
-  (emit "    movl %eax, (%ebp)")
-  (emit "    movl %ebp, " dst)
-  (emit "    addl $" $pair-tag ", " dst)
-  (emit "    addl $" (* 2 $wordsize) ", %ebp"))
+  (emit
+   (compile arg1 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg2 env (- si $wordsize) %eax)
+   (x86-movl %eax (^ (* 2 $wordsize) %ebp))
+   (x86-movl (^ si %esp) %eax)
+   (x86-movl %eax (^ $wordsize %ebp))
+   (x86-movl ($ $pair-tag) (^ 0 %ebp))
+   (x86-movl %ebp dst)
+   (x86-addl ($ $ptr-tag) dst)
+   (x86-addl ($ (* 3 $wordsize)) %ebp)))
 
 (define-primitive (%car env si dst arg)
-  (compile arg env si dst)
-  (emit "    movl " (- 0 $pair-tag) "(" dst "), " dst))
+  (emit
+   (compile arg env si dst)
+   (x86-movl (^ (- $wordsize $ptr-tag) dst) dst)))
+
 
 (define-primitive (%cdr env si dst arg)
-  (compile arg env si dst)
-  (emit "    movl " (- $wordsize $pair-tag) "(" dst "), " dst))
+  (emit
+   (compile arg env si dst)
+   (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)))
 
 (define-primitive (%set-car! env si dst arg1 arg2)
   (compile arg1 env si %eax)
@@ -268,21 +285,40 @@
   (emit "    movl %eax, " (- $wordsize $pair-tag) "(%ebx)"))
 
 (define-primitive (%closure? env si dst arg)
-  (tagged-pointer-predicate env si dst arg $closure-mask $closure-tag))
+  (emit
+   (compile arg env si %eax)
+   (x86-and ($ $primary-mask) %al)
+   (x86-cmp ($ $closure-tag) %al)
+   (x86-sete %al)
+   (x86-movzbl %al %eax)
+   (x86-sal ($ $bool-bit) %al)
+   (x86-or ($ $immediate-false) %al)
+   (if (not (eq? dst %eax))
+       (x86-movl %eax dst)
+       (list))))
 
-(define-primitive (%symbol? env si dst arg)
-  (tagged-pointer-predicate env si dst arg $symbol-mask $symbol-tag))
-
-(define (tagged-pointer-predicate env si dst arg mask tag)
-  (compile arg env si %eax)
-  (emit "    and $" mask ", %al")
-  (emit "    cmp $" tag ", %al")
-  (emit "    sete %al")
-  (emit "    movzbl %al, %eax")
-  (emit "    sal $" $bool-bit ", %al")
-  (emit "    or $" $immediate-false ", %al")
-  (if (not (eq? dst %eax))
-      (emit "    movl %eax, " dst)))
+(define (tagged-pointer-predicate env si dst arg tag)
+  (let ((end-label (unique-label))
+	(ptr-label (unique-label)))
+    (emit
+     (compile arg env si %eax)
+     (x86-and ($ $primary-mask) %al)
+     (x86-cmp ($ $ptr-tag) %al)
+     (x86-je ptr-label)
+     (x86-movl ($ $immediate-false) dst)
+     (x86-jmp end-label)
+     ptr-label
+     (x86-movl (^ (- 0 $ptr-tag) %eax) %eax)
+     (x86-and ($ $secondary-mask) %al)
+     (x86-cmp ($ tag) %al)
+     (x86-sete %al)
+     (x86-movzbl %al %eax)
+     (x86-sal ($ $bool-bit) %al)
+     (x86-or ($ $immediate-false) %al)
+     (if (not (eq? dst %eax))
+	 (x86-movl %eax dst)
+	 (list))
+     end-label)))
 
 ;;;
 ;; == Variables
@@ -359,9 +395,9 @@
   (let ((end-label (unique-label)))
     (emit
      (x86-movl (^ (global-binding-depth binding) %esi) dst)
-     (x86-movl (^ (- (* 2 $wordsize) $pair-tag) dst) dst)
+     (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)
      (x86-cmpl ($ $immediate-unbound) dst)
-     (x86-jne end-label)
+     (x86-je end-label)
      end-label)))
 
 ;;;
@@ -417,6 +453,8 @@
 	       ((eq? (car free) 'var)
 		(compile-lambda-free-var free env si offset))
 	       ((eq? (car free) 'lambda)
+		(compile-lambda-free-lambda free env si offset))
+	       ((eq? (car free) 'global)
 		(compile-lambda-free-lambda free env si offset))
 	       (else (error "unknown closed over variable ~a" free)))
 	 (compile-lambda-free (cdr frees) env si (+ offset $wordsize))))))
@@ -512,8 +550,8 @@
      (compile-arguments (call-arguments exp) env args-si)
      (compile (call-target exp) env si %esi)
      (x86-movl %esi %eax)
-     (x86-andl ($ $closure-mask) %eax)
-     (x86-cmpl ($ $closure-tag) %eax)
+     (x86-andl ($ $primary-mask) %eax)
+     (x86-cmp ($ $closure-tag) %al)
      (x86-je call-label)
      call-label
      (x86-movl ($ (encode argument-count)) %edx)

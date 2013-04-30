@@ -48,6 +48,7 @@ _fib:
 	cmp	%eax, 4(%esp)
 	movl	$4, %esi
 	addl	$4, %esi
+	movl	-1(%eax),%eax
 LL3:
 	addl    $7, %eax
         shll    $7, %eax

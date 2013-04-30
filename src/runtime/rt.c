@@ -62,7 +62,7 @@ typedef uintptr_t header_t ;
 #define NUMBER(n) (((intptr_t) n) / 4)
 #define NUMBERP(n) (((n) & PRIMARY_MASK) == FX_TAG)
 
-#define MAKE_CHAR(ch) ((obj_t) ((n << 8) + CHAR_TAG))
+#define MAKE_CHAR(ch) ((obj_t) (((ch) << 8) + CHAR_TAG))
 #define CHAR(ch) ((ch) >> 8)
 #define CHARP(x) (((x) & 0xff) == CHAR_TAG)
 
@@ -278,8 +278,10 @@ static void print_scm_pair(obj_t x)
 	{
 	  obj_t p = deref(pair, 1) ;
 	  print_scm_obj(p) ;
-	  printf(" ") ;
 	  pair = deref(pair,2) ;
+	  if (pair != OBJ_NIL) {
+	    printf(" ") ;
+	  }
 	}
       else
 	{
@@ -449,7 +451,7 @@ obj_t read_pair(int fd) {
 
 obj_t read_char(int fd) {
   uint8_t ch = read_u8(fd) ;
-  return CHAR(ch) ;
+  return MAKE_CHAR(ch) ;
 }
 
 obj_t read_template(int fd)

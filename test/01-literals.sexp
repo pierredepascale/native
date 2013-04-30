@@ -6,3 +6,4 @@
 ("symbol literal" 'hello-world "'hello-world")
 ("vector literal" '#(1 2 3) "#(1 2 3)")
 ("string literal" "hello world" "\"hello world\"")
+("pair literal" '(1 2 3) "(1 2 3)")
