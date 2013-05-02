@@ -49,6 +49,10 @@ _fib:
 	movl	$4, %esi
 	addl	$4, %esi
 	movl	-1(%eax),%eax
+	movl	%eax, %ebx
+	movl	%ebx, %eax
+	movl	8(%esp), %ebx
+	movl	%ebx,8(%eax)
 LL3:
 	addl    $7, %eax
         shll    $7, %eax

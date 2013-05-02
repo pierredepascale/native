@@ -228,6 +228,27 @@
    (compile arg1 env (- si $wordsize) dst)
    (x86-subl (^ si %esp) dst)))
 
+(define-primitive (%box env si dst arg)
+  (emit
+   (compile arg env si %eax)
+   (x86-movl %eax (^ $wordsize %ebp))
+   (x86-movl ($ (+ 8 $vector-tag)) (^ 0 %ebp))
+   (x86-movl %ebp dst)
+   (x86-addl ($ $ptr-tag) dst)
+   (x86-addl ($ (* 2 $wordsize)) %ebp)))
+  
+(define-primitive (%box-ref env si dst arg)
+  (emit
+   (compile arg env si dst)
+   (x86-movl (^ (- $wordsize $ptr-tag) dst) dst)))
+
+(define-primitive (%box-set! env si dst arg1 arg2)
+  (compile arg2 env si %eax)
+  (x86-movl %eax (^ si %esp))
+  (compile arg1 env (- si $wordsize) %eax)
+  (x86-movl (^ si %esp) %ebx)
+  (x86-movl %ebx (^ (- $wordsize $ptr-tag) %eax)))
+
 (define-primitive (%vector env si dst arg)
   (error "unimplemented %vector"))
 
@@ -271,18 +292,18 @@
    (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)))
 
 (define-primitive (%set-car! env si dst arg1 arg2)
-  (compile arg1 env si %eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) %eax)
-  (emit "    movl " si "(%esp), %ebx")
-  (emit "    movl %eax, " (- 0 $pair-tag) "(%ebx)"))
+  (compile arg2 env si %eax)
+  (x86-movl %eax (^ si %esp))
+  (compile arg1 env (- si $wordsize) %eax)
+  (x86-movl (^ si %esp) %ebx)
+  (x86-movl %ebx (^ (- $wordsize $ptr-tag) %eax)))
 
 (define-primitive (%set-cdr! env si dst arg1 arg2)
-  (compile arg1 env si %eax)
-  (emit "    movl %eax, " si "(%esp)")
-  (compile arg2 env (- si $wordsize) %eax)
-  (emit "    movl " si "(%esp), %ebx")
-  (emit "    movl %eax, " (- $wordsize $pair-tag) "(%ebx)"))
+  (compile arg2 env si %eax)
+  (x86-movl %eax (^ si %esp))
+  (compile arg1 env (- si $wordsize) %eax)
+  (x86-movl (^ si %esp) %ebx)
+  (x86-movl %ebx (^ (- (* 2 $wordsize) $ptr-tag) %eax)))
 
 (define-primitive (%closure? env si dst arg)
   (emit
@@ -302,12 +323,14 @@
 	(ptr-label (unique-label)))
     (emit
      (compile arg env si %eax)
+     (x86-movl %eax %ebx)
      (x86-and ($ $primary-mask) %al)
      (x86-cmp ($ $ptr-tag) %al)
      (x86-je ptr-label)
      (x86-movl ($ $immediate-false) dst)
      (x86-jmp end-label)
      ptr-label
+     (x86-movl %ebx %eax)
      (x86-movl (^ (- 0 $ptr-tag) %eax) %eax)
      (x86-and ($ $secondary-mask) %al)
      (x86-cmp ($ tag) %al)
@@ -394,7 +417,7 @@
 (define (compile-global-variable binding si dst)
   (let ((end-label (unique-label)))
     (emit
-     (x86-movl (^ (global-binding-depth binding) %esi) dst)
+     (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi) dst)
      (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)
      (x86-cmpl ($ $immediate-unbound) dst)
      (x86-je end-label)
@@ -596,6 +619,7 @@
   (map (lambda (e)
 	 (cond ((eq? 'lit (car e)) (toplevel-environment-lit e))
 	       ((eq? 'var (car e)) (toplevel-environment-var e))
+	       ((eq? 'global (car e)) (toplevel-environment-var e))
 	       ((eq? 'lambda (car e)) (toplevel-environment-lambda e))
 	       (else (error "unknown free element ~a" e))))
        (env-free env)))
@@ -608,11 +632,19 @@
 	 (body (clambda-body exp)))
     (assemble (compile-code body (make-environment (free-variables exp) args)))))
 
+(define (toplevel-compile-env env)
+  (map (lambda (e)
+	 (if (eq? 'var (car e))
+	     (list 'global (cadr e))
+	     e))
+       env))
+
 (define (scmc exp)
   (let ((stdout (current-output-port)))
     (with-output-to-file "code.fasl"
       (lambda ()
-        (let* ((env (make-environment (free-variables exp) '()))
+        (let* ((exp (front exp))
+	       (env (make-environment (toplevel-compile-env (free-variables exp)) '()))
 	       (template (assemble (compile-code exp env)))
 	       (closure (make-closure template
 				      (toplevel-environment env))))
