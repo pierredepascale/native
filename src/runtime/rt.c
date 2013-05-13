@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <string.h>
 
 #define PRIMARY_SHIFT   0x02
 #define PRIMARY_MASK    0x03
@@ -476,10 +477,6 @@ obj_t read_template(int fd)
   return tag(template, PTR_TAG) ;
 }
 
-obj_t read_ref(int fd) {
-  return OBJ_UNSPECIFIC;
-}
-
 obj_t read_number(int fd)
 {
   int8_t num = read_u8(fd)-128 ;
@@ -504,17 +501,67 @@ obj_t read_closure(int fd)
   return tag(closure, CLOSURE_TAG) ;
 }
 
+static obj_t symbols = OBJ_NIL ;
+
+obj_t intern(obj_t symbol) {
+  symbol_t *sym = (symbol_t *) (symbol & ~PRIMARY_MASK) ;
+  obj_t s ;
+
+  for (s=symbols; s != OBJ_NIL ; s = deref(s, 2))
+    {
+      
+      symbol_t *ss = (symbol_t *)((pair_t *) (s & ~PRIMARY_MASK))->head ;
+      if (ss->length == sym->length &&
+	  strncmp((const char *) &ss->ch,
+		  (const char *) &sym->ch, ss->length) == 0)
+	return ((pair_t *) (s & PRIMARY_MASK))->head ;
+    }
+  
+  pair_t *p = make_pair() ;
+  p->head = symbol ;
+  p->tail = symbols ;
+
+  return symbol ;
+}
+
 obj_t read_symbol(int fd)
 {
   size_t len = read_u32(fd) ;
   int i ;
 
   symbol_t *symbol = make_symbol(len) ;
-
+  
   for (i = 0 ; i < len ; i++)
     symbol->ch[i] = read_u8(fd) ;
-
+  
   return tag(symbol, PTR_TAG) ;
+}
+
+static obj_t refs = OBJ_NIL ;
+
+obj_t read_ref(int fd) {
+  obj_t sym = read_symbol(fd) ;
+
+  sym = intern(sym) ;
+
+  obj_t ref ;
+  for (ref = refs ; ref != OBJ_NIL && deref(deref(ref, 1),1) != sym ;
+       ref = deref(ref, 2)) ;
+  if (ref == OBJ_NIL)
+    {
+      pair_t *entry = make_pair() ;
+      pair_t *link = make_pair() ;
+      entry->head = sym ;
+      entry->tail = OBJ_UNBOUND ;
+
+      link->head = tag(entry, PTR_TAG) ;
+      link->tail = refs ;
+      refs = tag(link, PTR_TAG) ;
+
+      return tag(entry, PTR_TAG) ;
+    }
+
+  return deref(ref, 1) ;
 }
 
 obj_t read_string(int fd)

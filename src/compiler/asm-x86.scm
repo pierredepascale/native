@@ -177,6 +177,9 @@
 (define (x86-jmp label)
   (cons #xeb (list 'short label)))
 
+(define (x86-jmp/l label)
+  (cons #xe9 (list 'long label)))
+
 (define (x86-orl src dst)
   (cond ((and (x86-immediate? src) (eq? dst %eax))
          (list #x83 #xc8 (x86-encode-8 (x86-immediate-value src))))

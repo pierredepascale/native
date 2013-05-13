@@ -2,7 +2,7 @@
 
 (define (front exp)
   (let ((exp (desugar exp)))
-    (assignment-convert exp (setted-variables exp))))
+    (assignment-convert exp (set-empty))))
 
 ;;;
 ;; desugar Scheme
@@ -57,7 +57,7 @@
 
 (define (desugar-body exp)
   (cond ((null? exp) (unspecific-object))
-	((null? (cdr exp)) (list (desugar (car exp))))
+	((null? (cdr exp)) (desugar (car exp)))
 	((pair? exp) (cons 'begin (map desugar exp)))
 	(error "malformed body ~a" exp)))
 
@@ -157,8 +157,11 @@
   (map (lambda (e) (assignment-convert e env)) exp))
 
 (define (assignment-convert-set! exp env)
-  (list '%box-set! (set!-variable exp)
-        (assignment-convert (set!-value exp) env)))
+  (let ((var (set!-variable exp))
+	(exp (assignment-convert (set!-value exp) env)))
+    (if (set-member? var env)
+	(list '%box-set! var exp)
+	(list 'set! var exp))))
 
 (define (assignment-convert-let exp env)
   (let* ((bindings (let-bindings exp))
@@ -391,44 +394,3 @@
         (if (member e set)
             set
             (cons e set)))))
-
-;;;
-;; == literal handling
-
-(define (literal-convert exp)
-  (cond ((literal? exp) (literal-convert-literal exp))
-	((variable? exp) (literal-convert-variable exp))
-	((if? exp) (literal-convert-if exp))
-	((let? exp) (literal-convert-let exp))
-	((begin? exp) (literal-convert-begin exp))
-	((clambda? exp) (literal-convert-lambda exp))
-	((primitive-call? exp) (literal-convert-primitive-call exp))
-	((call? exp) (literal-convert-call exp))
-	(else (error "unknown expression ~a" exp))))
-
-(define (literal-convert-literal exp)
-  exp)
-
-(define (literal-convert-variable exp)
-  exp)
-
-(define (literal-convert-if exp)
-  (list 'if (literal-convert (if-test exp))
-	(literal-convert (if-consequent exp))
-	(literal-convert (if-alternative exp))))
-
-(define (literal-convert-let exp)
-  (list 'let (map (lambda (b) (cons (binding-name b)
-				    (literal-convert (binding-expression b))))
-		  (let-bindings exp))
-	(literal-convert (let-body exp))))
-
-(define (literal-convert-begin exp)
-  (cons 'begin
-	(map literal-convert (begin-body exp))))
-
-(define (literal-convert-lambda exp) exp)
-
-(define (literal-convert-primitive-call exp) exp)
-
-(define (literal-convert-call exp) exp)

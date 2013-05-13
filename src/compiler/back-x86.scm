@@ -18,6 +18,7 @@
 	((clambda? exp) (compile-lambda exp env si dst))
 	((if? exp) (compile-if exp env si dst))
 	((let? exp) (compile-let exp env si dst))
+	((set!? exp) (compile-set! exp env si dst))
 	((primitive-call? exp) (compile-primitive-call exp env si dst))
 	((begin? exp) (compile-begin exp env si dst))
 	((call? exp) (compile-call exp env si dst))
@@ -64,7 +65,7 @@
      (x86-cmp ($ (encode #f)) %al)
      (x86-je alt-label)
      (compile (if-consequent exp) env si dst)
-     (x86-jmp end-label)
+     (x86-jmp/l end-label)
      (x86-label alt-label)
      (compile (if-alternative exp) env si dst)
      (x86-label end-label))))
@@ -243,12 +244,13 @@
    (x86-movl (^ (- $wordsize $ptr-tag) dst) dst)))
 
 (define-primitive (%box-set! env si dst arg1 arg2)
-  (compile arg2 env si %eax)
-  (x86-movl %eax (^ si %esp))
-  (compile arg1 env (- si $wordsize) %eax)
-  (x86-movl (^ si %esp) %ebx)
-  (x86-movl %ebx (^ (- $wordsize $ptr-tag) %eax)))
-
+  (emit
+   (compile arg2 env si %eax)
+   (x86-movl %eax (^ si %esp))
+   (compile arg1 env (- si $wordsize) %eax)
+   (x86-movl (^ si %esp) %ebx)
+   (x86-movl %ebx (^ (- $wordsize $ptr-tag) %eax))))
+  
 (define-primitive (%vector env si dst arg)
   (error "unimplemented %vector"))
 
@@ -422,6 +424,16 @@
      (x86-cmpl ($ $immediate-unbound) dst)
      (x86-je end-label)
      end-label)))
+;;;
+;; == Set Expression
+(define (compile-set! exp env si dst)
+  (let ((binding (lookup-variable (set!-variable exp) env)))
+    (if (and binding (global-binding? binding))
+	(emit
+	 (compile (set!-value exp) env si %eax)
+	 (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %ebx))
+	 (x86-movl %eax (^ (- (* 2 $wordsize) $ptr-tag) ebx)))
+	(error "internal error: set! expression not setting a global variable ~a" exp))))
 
 ;;;
 ;; == Let expression
