@@ -541,9 +541,10 @@ static obj_t refs = OBJ_NIL ;
 
 obj_t read_ref(int fd) {
   obj_t sym = read_symbol(fd) ;
+  /* print_scm_obj(sym) ; */
 
   sym = intern(sym) ;
-
+  /* print_scm_obj(sym) ; */
   obj_t ref ;
   for (ref = refs ; ref != OBJ_NIL && deref(deref(ref, 1),1) != sym ;
        ref = deref(ref, 2)) ;

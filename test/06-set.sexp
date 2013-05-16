@@ -1,0 +1,8 @@
+("basic set" (set! a 123) "123")
+("basic set" (begin (set! a 123) a) "123")
+("basic set" (begin (set! a 123) (%fx+ a 123)) "246")
+("basic set" (begin (set! fib (lambda (n) fib)) (fib 10)) "#{closure}")
+("complex set (fibonacci base case)" (begin (set! fib (lambda (n) (if (%fx< n 2) n (%fx+ (fib (%fx- n 1)) (fib (%fx- n 2)))))) (fib 1)) "1")
+("complex set (fibonacci)" (begin (set! fib (lambda (n) (if (%fx< n 2) n (%fx+ n 1)))) (fib 10)) "11")
+("complex set (fibonacci)" (begin (set! fib (lambda (n) (if (%fx< n 2) n (fib (%fx- n 1))))) (fib 10)) "1")
+("complex set (fibonacci)" (begin (set! fib (lambda (n) (if (%fx< n 2) n (%fx+ (fib (%fx- n 1)) (fib (%fx- n 2)))))) (fib 10)) "55")

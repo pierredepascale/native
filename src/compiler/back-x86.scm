@@ -431,8 +431,9 @@
     (if (and binding (global-binding? binding))
 	(emit
 	 (compile (set!-value exp) env si %eax)
-	 (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %ebx))
-	 (x86-movl %eax (^ (- (* 2 $wordsize) $ptr-tag) ebx)))
+	 (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi)
+		   %ebx)
+	 (x86-movl %eax (^ (- (* 2 $wordsize) $ptr-tag) %ebx)))
 	(error "internal error: set! expression not setting a global variable ~a" exp))))
 
 ;;;
@@ -468,7 +469,7 @@
 	 (compile-inits (cdr inits) env (- si $wordsize))))))
 
 ;;;
-;; == Procedure
+;; == Lambda
 
 (define (make-environment free locals) (cons free locals))
 (define (env-local env) (cdr env))
@@ -490,7 +491,7 @@
 	       ((eq? (car free) 'lambda)
 		(compile-lambda-free-lambda free env si offset))
 	       ((eq? (car free) 'global)
-		(compile-lambda-free-lambda free env si offset))
+		(compile-lambda-free-var free env si offset))
 	       (else (error "unknown closed over variable ~a" free)))
 	 (compile-lambda-free (cdr frees) env si (+ offset $wordsize))))))
 
@@ -514,7 +515,7 @@
 
 (define (compile-lambda-free-lambda lam env si offset)
   (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
-    (emit (x86-movl (^ depth %esi) %eax)
+    (emit (x86-movl (^ (- 0 (* $wordsize (+ 2 depth))) %esi) %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lambda-offset exp env)
@@ -526,7 +527,9 @@
 	    0
 	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
 
+
 (define (header len code) (+ (* len 4) code))
+
 (define (compile-lambda exp env si dst)
   (let* ((free (free-variables exp))
 	 (free-len (length free))
@@ -631,13 +634,14 @@
   (map (lambda (e)
 	 (cond ((eq? 'lit (car e)) (toplevel-environment-lit e))
 	       ((eq? 'var (car e)) (toplevel-environment-var e))
-	       ((eq? 'global (car e)) (toplevel-environment-var e))
+	       ((eq? 'global (car e)) (toplevel-environment-global e))
 	       ((eq? 'lambda (car e)) (toplevel-environment-lambda e))
 	       (else (error "unknown free element ~a" e))))
        (env-free env)))
 
 (define (toplevel-environment-lit e) (cadr e))
 (define (toplevel-environment-var e) (cons (cadr e) #f))
+(define (toplevel-environment-global e) (make-ref (cadr e) #f))
 (define (toplevel-environment-lambda e)
   (let* ((exp (cadr e))
 	 (args (clambda-formals exp))
@@ -650,6 +654,10 @@
 	     (list 'global (cadr e))
 	     e))
        env))
+
+(define (compile-environment free env)
+  (map (lambda (e) e)
+       free))
 
 (define (scmc exp)
   (let ((stdout (current-output-port)))

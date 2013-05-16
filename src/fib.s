@@ -54,6 +54,8 @@ _fib:
 	movl	%ebx, %eax
 	movl	8(%esp), %ebx
 	movl	%ebx,8(%eax)
+	movl	8(%esi),%ebx
+	movl	%eax,8(%ebx)
 LL3:
 	addl    $7, %eax
         shll    $7, %eax
@@ -442,6 +444,10 @@ L3:
 	movl	%ebx, %eax
 	movl	8(%esp), %ebx
 	movl	%ebx,8(%eax)
+	movl	%ebx,8(%eax)
+	movl	8(%esi),%ebx
+	movl	%eax,8(%ebx)
+	cmpl	$127,%esi
 L4:	ret
 #	.def	___main;	.scl	2;	.type	32;	.endef
 .globl _main

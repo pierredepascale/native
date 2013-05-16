@@ -257,6 +257,8 @@
         ((let? exp) (free-variables-let exp))
         ((clambda? exp) (free-variables-lambda exp))
         ((primitive-call? exp) (free-variables-primitive-call exp))
+	((begin? exp) (free-variables-begin exp))
+	((set!? exp) (free-variables-set! exp))
         ((call? exp) (free-variables-call exp))
         (else (error "free variables unknwon expression ~a" exp))))
 
@@ -265,6 +267,13 @@
       (set-empty)
       (set-union (free-variables (car exps))
                  (free-variables* (cdr exps)))))
+
+(define (free-variables-begin exp)
+  (free-variables* (cdr exp)))
+
+(define (free-variables-set! exp)
+  (set-union (set-singleton (list 'var (set!-variable exp)))
+	     (free-variables (set!-value exp))))
 
 ;;;
 ;; ### Free variables in literals
