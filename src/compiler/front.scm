@@ -2,7 +2,7 @@
 
 (define (front exp)
   (let ((exp (desugar exp)))
-    (assignment-convert exp (set-empty))))
+    (assignment-convert (global-convert exp '()) (set-empty))))
 
 ;;;
 ;; desugar Scheme
@@ -118,6 +118,63 @@
 
 (define (begin? exp) (and (pair? exp) (eq? 'begin (car exp))))
 (define begin-body cdr)
+
+
+;;;
+;; == Global convertion
+;;
+;; Global convertion removes the global reference
+
+(define (global-convert exp env)
+  (cond ((literal? exp) (global-convert-literal exp env))
+        ((variable? exp) (global-convert-variable exp env))
+        ((if? exp) (global-convert-if exp env))
+        ((set!? exp) (global-convert-set! exp env))
+        ((let? exp) (global-convert-let exp env))
+        ((clambda? exp) (global-convert-lambda exp env))
+        ((primitive-call? exp) (global-convert-primitive-call exp env))
+        ((call? exp) (global-convert-call exp env))
+        (else (error "unknown expression ~a" exp))))
+
+(define (global-convert-literal exp env)
+  exp)
+(define (global-convert-variable exp env)
+  (if (memq exp env)
+      exp
+      (list '%global exp)))
+
+(define (global-convert-if exp env)
+  (list 'if
+	(global-convert (if-test exp) env)
+	(global-convert (if-consequent exp) env)
+	(global-convert (if-alternative exp) env)))
+
+(define (global-convert-set! exp env)
+  (let ((var (set!-variable exp))
+	(val (set!-value exp)))
+    (if (memq var env)
+	(list 'set! var (global-convert val env))
+	(list '%set-global var (global-convert val env)))))
+
+(define (global-convert-let exp env)
+  (list 'let
+	(map (lambda (b) (list (car b) (global-convert (cadr b) env)))
+	     (let-bindings exp))
+	(global-convert (let-body exp)
+			(append (map car (let-bindings exp)) env))))
+
+(define (global-convert-lambda exp env)
+  (list 'lambda
+	(clambda-formals exp)
+	(global-convert (clambda-body exp)
+			(append (clambda-formals exp) env))))
+
+(define (global-convert-primitive-call exp env)
+  (cons (car exp)
+	(map (lambda (e) (global-convert e env)) (cdr exp))))
+
+(define (global-convert-call exp env)
+  (map (lambda (e) (global-convert e env)) exp))
 
 ;;;
 ;; == Assignment convertion 
