@@ -515,7 +515,7 @@
 
 (define (compile-lambda-free-lambda lam env si offset)
   (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
-    (emit (x86-movl (^ (- 0 (* $wordsize (+ 2 depth))) %esi) %eax)
+    (emit (x86-movl (^ (* $wordsize (+ 2 depth)) %esi) %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lambda-offset exp env)
@@ -531,7 +531,7 @@
 (define (header len code) (+ (* len 4) code))
 
 (define (compile-lambda exp env si dst)
-  (let* ((free (free-variables exp))
+  (let* ((free (free-variables exp '()))
 	 (free-len (length free))
 	 (depth (lookup-lambda-offset exp (env-free env))))
     (emit
@@ -539,7 +539,7 @@
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
      (x86-addl ($ 7) %eax)
      (x86-movl %eax (^ $wordsize %ebp))
-     (compile-lambda-free (free-variables exp) env si (* 2 $wordsize))
+     (compile-lambda-free (free-variables exp (env-local env)) env si (* 2 $wordsize))
      (x86-movl %ebp dst)
      (x86-orl ($ $closure-tag) dst)
      (x86-addl ($ (* $wordsize (+ 2 free-len))) %ebp))))
@@ -627,8 +627,8 @@
 	     ((%car fib) fib 36)))))
 
 (define (test exp)
-  (let ((env (make-environment (free-variables exp) '())))
-    (assemble (compile-code exp env))))
+  (let ((env (make-environment (free-variables exp '()) '())))
+    (compile-code exp env)))
 
 (define (toplevel-environment env)
   (map (lambda (e)
@@ -646,7 +646,7 @@
   (let* ((exp (cadr e))
 	 (args (clambda-formals exp))
 	 (body (clambda-body exp)))
-    (assemble (compile-code body (make-environment (free-variables exp) args)))))
+    (assemble (compile-code body (make-environment (free-variables exp '()) args)))))
 
 (define (toplevel-compile-env env)
   (map (lambda (e)
@@ -664,7 +664,7 @@
     (with-output-to-file "code.fasl"
       (lambda ()
         (let* ((exp (front exp))
-	       (env (make-environment (toplevel-compile-env (free-variables exp)) '()))
+	       (env (make-environment (free-variables exp '()) '()))
 	       (template (assemble (compile-code exp env)))
 	       (closure (make-closure template
 				      (toplevel-environment env))))

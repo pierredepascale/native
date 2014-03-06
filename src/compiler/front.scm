@@ -2,7 +2,7 @@
 
 (define (front exp)
   (let ((exp (desugar exp)))
-    (assignment-convert (global-convert exp '()) (set-empty))))
+    (assignment-convert exp (set-empty))))
 
 ;;;
 ;; desugar Scheme
@@ -307,30 +307,30 @@
 ;;;
 ;; ## Free variable
 
-(define (free-variables exp)
-  (cond ((literal? exp) (free-variables-literal exp))
-        ((variable? exp) (free-variables-variable exp))
-        ((if? exp) (free-variables-if exp))
-        ((let? exp) (free-variables-let exp))
-        ((clambda? exp) (free-variables-lambda exp))
-        ((primitive-call? exp) (free-variables-primitive-call exp))
-	((begin? exp) (free-variables-begin exp))
-	((set!? exp) (free-variables-set! exp))
-        ((call? exp) (free-variables-call exp))
+(define (free-variables exp bound)
+  (cond ((literal? exp) (free-variables-literal exp bound))
+        ((variable? exp) (free-variables-variable exp bound))
+        ((if? exp) (free-variables-if exp bound))
+        ((let? exp) (free-variables-let exp bound))
+        ((clambda? exp) (free-variables-lambda exp bound))
+        ((primitive-call? exp) (free-variables-primitive-call exp bound))
+	((begin? exp) (free-variables-begin exp bound))
+	((set!? exp) (free-variables-set! exp bound))
+        ((call? exp) (free-variables-call exp bound))
         (else (error "free variables unknwon expression ~a" exp))))
 
-(define (free-variables* exps)
+(define (free-variables* exps bound)
   (if (null? exps)
       (set-empty)
-      (set-union (free-variables (car exps))
-                 (free-variables* (cdr exps)))))
+      (set-union (free-variables (car exps) bound)
+                 (free-variables* (cdr exps) bound))))
 
-(define (free-variables-begin exp)
-  (free-variables* (cdr exp)))
+(define (free-variables-begin exp bound)
+  (free-variables* (cdr exp) bound))
 
-(define (free-variables-set! exp)
-  (set-union (set-singleton (list 'var (set!-variable exp)))
-	     (free-variables (set!-value exp))))
+(define (free-variables-set! exp bound)
+  (set-union (free-variables (set!-variable exp) bound)
+	     (free-variables (set!-value exp) bound)))
 
 ;;;
 ;; ### Free variables in literals
@@ -349,7 +349,7 @@
       exp
       (cadr exp)))
 
-(define (free-variables-literal exp)
+(define (free-variables-literal exp bound)
   (if (literal-immediate? exp)
       (set-empty)
       (set-singleton (list 'lit (literal-complex-value exp)))))
@@ -357,47 +357,50 @@
 ;;;
 ;; ### Free variable in variable
 
-(define (free-variables-variable exp)
-  (set-singleton (list 'var exp)))
+(define (free-variables-variable exp bound)
+  (if (memq exp bound)
+      (set-singleton (list 'var exp))
+      (set-singleton (list 'global exp))))
 
 ;;;
 ;; ### Free variable in conditional
 
-(define (free-variables-if exp)
-  (set-union (free-variables (if-test exp))
-             (set-union (free-variables (if-consequent exp))
-                        (free-variables (if-alternative exp)))))
+(define (free-variables-if exp bound)
+  (set-union (free-variables (if-test exp) bound)
+             (set-union (free-variables (if-consequent exp) bound)
+                        (free-variables (if-alternative exp) bound))))
 
 ;;;
 ;; ### Free variable in primitive call
 
-(define (free-variables-primitive-call exp)
-  (free-variables* (cdr exp)))
+(define (free-variables-primitive-call exp bound)
+  (free-variables* (cdr exp) bound))
 
 ;;;
 ;; ### Free variable in calling procedures
 
-(define (free-variables-call exp)
-  (free-variables* exp))
+(define (free-variables-call exp bound)
+  (free-variables* exp bound))
 
 ;;;
 ;; ### Free variable in let binding
 
-(define (free-variables-let exp)
+(define (free-variables-let exp bound)
   (let* ((bindings (let-bindings exp))
          (vars (map car bindings))
          (inits (map cadr bindings)))
-    (set-union (free-variables* inits)
-               (set-difference (free-variables (let-body exp))
-                               (list->set vars)))))
+    (set-union (free-variables* inits bound)
+               (set-difference (free-variables (let-body exp) bound)
+                               (list->set (map (lambda (n) (list 'var n)) vars))))))
 
 ;;;
 ;; ### Free variable in lambda expressions
 
-(define (free-variables-lambda exp)
+(define (free-variables-lambda exp bound)
   (set-union (set-singleton (list 'lambda exp))
-	     (set-difference (free-variables (clambda-body exp))
-			     (list->set (clambda-formals exp)))))
+	     (set-difference (free-variables (clambda-body exp) bound)
+			     (list->set (map (lambda (e) (list 'var e))
+					     (clambda-formals exp))))))
 
 ;;;
 ;; == Set data structure
