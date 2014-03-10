@@ -390,7 +390,7 @@
          (vars (map car bindings))
          (inits (map cadr bindings)))
     (set-union (free-variables* inits bound)
-               (set-difference (free-variables (let-body exp) bound)
+               (set-difference (free-variables (let-body exp) (append vars bound))
                                (list->set (map (lambda (n) (list 'var n)) vars))))))
 
 ;;;

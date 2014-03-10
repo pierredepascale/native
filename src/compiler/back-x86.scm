@@ -13,6 +13,7 @@
 	  (x86-ret))))
 
 (define (compile exp env si dst)
+;  (display (list 'compile exp (env-local env) (env-free env))) (newline)
   (cond ((literal? exp) (compile-literal exp env si dst))
 	((variable? exp) (compile-variable exp env si dst))
 	((clambda? exp) (compile-lambda exp env si dst))
@@ -531,15 +532,16 @@
 (define (header len code) (+ (* len 4) code))
 
 (define (compile-lambda exp env si dst)
-  (let* ((free (free-variables exp '()))
+  (let* ((free (free-variables exp (env-local env)))
 	 (free-len (length free))
 	 (depth (lookup-lambda-offset exp (env-free env))))
+    ;(display (list 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)) (newline)
     (emit
      (x86-movl ($ (header (+ (length free) 2) 0)) (^ 0 %ebp))
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
      (x86-addl ($ 7) %eax)
      (x86-movl %eax (^ $wordsize %ebp))
-     (compile-lambda-free (free-variables exp (env-local env)) env si (* 2 $wordsize))
+     (compile-lambda-free free env si (* 2 $wordsize))
      (x86-movl %ebp dst)
      (x86-orl ($ $closure-tag) dst)
      (x86-addl ($ (* $wordsize (+ 2 free-len))) %ebp))))
