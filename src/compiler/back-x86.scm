@@ -8,7 +8,7 @@
 
 (define (compile-code exp env)
   (let ((si (- 0 (* (+ 1 (length (env-local env))) $wordsize))))
-;    (display ";; compiling code with env ") (display si) (newline)   
+    ;(display ";; compiling code with env ") (display exp) (display env) (display si) (newline)   
     (emit (compile exp env si %eax)
 	  (x86-ret))))
 
@@ -535,7 +535,8 @@
   (let* ((free (free-variables exp (env-local env)))
 	 (free-len (length free))
 	 (depth (lookup-lambda-offset exp (env-free env))))
-    ;(display (list 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)) (newline)
+    (display (list 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)) (newline)
+    (set-cdr! exp (cons free (cdr exp))) ;; Hack
     (emit
      (x86-movl ($ (header (+ (length free) 2) 0)) (^ 0 %ebp))
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
@@ -646,9 +647,10 @@
 (define (toplevel-environment-global e) (make-ref (cadr e) #f))
 (define (toplevel-environment-lambda e)
   (let* ((exp (cadr e))
-	 (args (clambda-formals exp))
-	 (body (clambda-body exp)))
-    (assemble (compile-code body (make-environment (free-variables exp '()) args)))))
+	 (free (cadr e))
+	 (args (caddr exp))
+	 (body (cadddr exp)))
+    (assemble (compile-code body (make-environment free args)))))
 
 (define (toplevel-compile-env env)
   (map (lambda (e)
@@ -663,15 +665,15 @@
 
 (define (scmc exp)
   (let ((stdout (current-output-port)))
-    (with-output-to-file "code.fasl"
-      (lambda ()
+    (call-with-output-file "code.fasl"
+      (lambda (port)
         (let* ((exp (front exp))
 	       (env (make-environment (free-variables exp '()) '()))
 	       (template (assemble (compile-code exp env)))
 	       (closure (make-closure template
 				      (toplevel-environment env))))
 ;          (display ";; " stdout) (write closure stdout) (newline stdout)
-          (write-fasl closure (current-output-port)))))))
+          (write-fasl closure port))))))
 
 (define (read-test-from-file file-name)
   (with-input-from-file file-name
