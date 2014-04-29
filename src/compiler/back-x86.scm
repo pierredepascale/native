@@ -398,6 +398,7 @@
 
 (define (compile-variable exp env si dst)
   (let ((binding (lookup-variable exp env)))
+    (debug "compiling variable binding " binding env)
     (if binding
 	(cond ((local-binding? binding)
 	       (compile-local-variable binding si dst))
@@ -419,6 +420,7 @@
 
 (define (compile-global-variable binding si dst)
   (let ((end-label (unique-label)))
+    (debug "emiting global " binding)
     (emit
      (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi) dst)
      (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)
@@ -429,6 +431,7 @@
 ;; == Set Expression
 (define (compile-set! exp env si dst)
   (let ((binding (lookup-variable (set!-variable exp) env)))
+    ;(display ";; emiting set! for ") (display binding) (newline)
     (if (and binding (global-binding? binding))
 	(emit
 	 (compile (set!-value exp) env si %eax)
@@ -492,7 +495,7 @@
 	       ((eq? (car free) 'lambda)
 		(compile-lambda-free-lambda free env si offset))
 	       ((eq? (car free) 'global)
-		(compile-lambda-free-var free env si offset))
+		(compile-lambda-free-global free env si offset))
 	       (else (error "unknown closed over variable ~a" free)))
 	 (compile-lambda-free (cdr frees) env si (+ offset $wordsize))))))
 
@@ -514,6 +517,13 @@
   (emit (compile-variable (cadr var) env si %eax)
 	(x86-movl %eax (^ offset %ebp))))
 
+(define (compile-lambda-free-global var env si offset)
+  (let ((binding (lookup-variable (cadr var) env)))
+    (if (and binding (global-binding? binding))
+	(emit (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi) %eax)
+	      (x86-movl %eax (^ offset %ebp)))
+	(error "internal error: free global variable not a global ?!?" binding))))
+
 (define (compile-lambda-free-lambda lam env si offset)
   (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
     (emit (x86-movl (^ (* $wordsize (+ 2 depth)) %esi) %eax)
@@ -528,15 +538,23 @@
 	    0
 	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
 
+(define (lookup-lambda-free exp env)
+  (if (null? env)
+      (error "lambda code not found in env ~a" exp)
+      (let ((entry (car env)))
+	(if (and (eq? (car entry) 'lambda)
+		 (eq? (cadr entry) exp))
+	    (caddr entry)
+	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
+
 
 (define (header len code) (+ (* len 4) code))
 
 (define (compile-lambda exp env si dst)
-  (let* ((free (free-variables exp (env-local env)))
+  (let* ((free (lookup-lambda-free exp (env-free env)))
 	 (free-len (length free))
 	 (depth (lookup-lambda-offset exp (env-free env))))
-    (display (list 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)) (newline)
-    (set-cdr! exp (cons free (cdr exp))) ;; Hack
+    (debug 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)
     (emit
      (x86-movl ($ (header (+ (length free) 2) 0)) (^ 0 %ebp))
      (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
@@ -647,9 +665,9 @@
 (define (toplevel-environment-global e) (make-ref (cadr e) #f))
 (define (toplevel-environment-lambda e)
   (let* ((exp (cadr e))
-	 (free (cadr e))
-	 (args (caddr exp))
-	 (body (cadddr exp)))
+	 (free (caddr e))
+	 (args (cadr exp))
+	 (body (caddr exp)))
     (assemble (compile-code body (make-environment free args)))))
 
 (define (toplevel-compile-env env)
@@ -668,11 +686,15 @@
     (call-with-output-file "code.fasl"
       (lambda (port)
         (let* ((exp (front exp))
+	       #;(_ (begin (display ";; top ") (display exp)
+			 (display " in ")
+			 (display (free-variables exp '()))
+			 (newline)))
 	       (env (make-environment (free-variables exp '()) '()))
 	       (template (assemble (compile-code exp env)))
 	       (closure (make-closure template
 				      (toplevel-environment env))))
-;          (display ";; " stdout) (write closure stdout) (newline stdout)
+          ;;(display ";; " stdout) (write closure stdout) (newline stdout)
           (write-fasl closure port))))))
 
 (define (read-test-from-file file-name)
@@ -720,6 +742,18 @@
 	      (lp (read-test-from-port p))))))))
 
 (define (read-test-from-port port) (read port))
+
+(define *debug-port* #f)
+
+(define (debug . args)
+  (if *debug-port*
+      (begin
+	(display ";; ")
+	(for-each (lambda (e) (display e *debug-port*)) args)
+	(newline))))
+
+(define (debug-on!) (set! *debug-port* (current-output-port)))
+(define (debug-off!) (set! *debug-port* #f))
 
 ;;; FASL support
 

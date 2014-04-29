@@ -397,10 +397,14 @@
 ;; ### Free variable in lambda expressions
 
 (define (free-variables-lambda exp bound)
-  (set-union (set-singleton (list 'lambda exp))
-	     (set-difference (free-variables (clambda-body exp) bound)
-			     (list->set (map (lambda (e) (list 'var e))
-					     (clambda-formals exp))))))
+  (let ((free-body (set-difference (free-variables (clambda-body exp)
+						   (append (clambda-formals exp) bound))
+				   (list->set (map (lambda (e) (list 'var e))
+						   (clambda-formals exp))))))
+    ;(display ";; free for ") (display exp) (newline)
+    ;(display ";; ") (display free-body) (newline)
+    (set-union (set-singleton (list 'lambda exp free-body))
+	       free-body)))
 
 ;;;
 ;; == Set data structure
