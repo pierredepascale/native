@@ -202,6 +202,8 @@ typedef struct {
   void* entry_arity_error ;
   void* entry_value_error ;
   void* entry_unbound_error ;
+  
+  void* entry_print ;
 } context_t ;
 
 static char *heap_new ;
@@ -356,7 +358,11 @@ int main(int ac, char *av[])
   heap_old = alloc_protected_space(16*4096) ;
  
   context_t ctx ;
-  
+  ctx.entry_arity_error = 0;
+  ctx.entry_value_error = 0;
+  ctx.entry_unbound_error = 0;
+  ctx.entry_print = print_scm_obj;
+
   int fd = open(av[1], O_RDONLY) ;
   obj_t closure = read_fasl(fd) ;
 

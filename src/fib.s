@@ -461,4 +461,6 @@ _main:
 	movl	$36, (%esp)
 	call	_fib
 	leave
+	movl 8(%ecx), %eax
+	pushl %eax
 	ret

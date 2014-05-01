@@ -165,7 +165,16 @@
 	((and (x86-immediate? src)
 	      (eq? %esi dst))
 	 (cons #xbe (x86-encode-32 (x86-immediate-value src))))
+	((and (x86-indirect? src)
+	      (eq? (x86-indirect-register src) %ecx)
+	      (eq? %eax dst))
+	 (list #x8b #x41 (x86-encode-8 (x86-indirect-offset src))))
         (else (error "movl not supported: movl ~s ~s" src dst))))
+
+(define (x86-pushl reg)
+  (if (eq? reg %eax)
+      (list #x50)
+      (error "don't know how to pushl ~a" reg)))
 
 (define (x86-cmp val dst)
   (if (and (x86-immediate? val) (eq? dst %al))

@@ -65,3 +65,12 @@
 	((unspecific-object? obj) $immediate-unspecific)
 	((unbound-object? obj) $immediate-unbound)
 	(else (error "No encoding for object ~a" obj))))
+
+;;; ABI definition
+;;
+;; %esi - closure pointer
+;; %ebp - allocation pointer
+;; %ecx - context pointer
+;; %eax - result register
+;; %edx - argument count
+
