@@ -1,6 +1,7 @@
 ;;; arch-x86.scm -- architecture definition of the runtime
 
 (define $wordsize 4)
+(define (wordsize n) (* $wordsize n))
 
 (define $primary-shift #x02)
 (define $primary-mask #x03)
@@ -17,6 +18,8 @@
 (define $closure-tag #x02)
 (define $imm-tag #x03)
 (define $ptr-tag #x01)
+
+(define (header len code) (+ (* len 4) code))
 
 (define $char-shift #x08)
 (define $char-mask #xff)
@@ -74,3 +77,18 @@
 ;; %eax - result register
 ;; %edx - argument count
 
+(define (emit-stack-save si)
+  (x86-movl %eax (^ si %esp)))
+
+(define (emit-stack-load si dst)
+  (let ((depth (wordsize si)))
+    (x86-movl (^ depth %esp) dst)))
+
+(define (emit-adjust-base si)
+  (if (= si 0)
+      (list)
+      (x86-addl ($ si) %esp)))
+
+(define (emit-free-load offset dst)
+  (let ((off (wordsize (+ 2 offset))))
+    (emit (x86-movl (^ off %esi) dst))))

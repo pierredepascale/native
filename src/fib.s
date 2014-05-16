@@ -448,6 +448,12 @@ L3:
 	movl	8(%esi),%ebx
 	movl	%eax,8(%ebx)
 	cmpl	$127,%esi
+	movl	%ecx,12(%esp)
+	movl	%esi,12(%esp)
+	movl	%ebp,12(%esp)
+	movl	16(%esp),%ecx
+	movl	16(%esp),%esi
+	movl	16(%esp),%ebp
 L4:	ret
 #	.def	___main;	.scl	2;	.type	32;	.endef
 .globl _main
