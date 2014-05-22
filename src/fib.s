@@ -463,4 +463,7 @@ _main:
 	leave
 	movl 8(%ecx), %eax
 	pushl %eax
+	movl (%eax,%edx,4),%eax
+	movl 12(%esp),%edx
+	sarl $2,%edx
 	ret
