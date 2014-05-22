@@ -46,9 +46,9 @@
   (if (literal-immediate? exp)
       (emit
        (x86-movl ($ (encode exp)) dst))
-      (let ((depth (* $wordsize (+ 2 (lookup-lit-offset (literal-complex-value exp)
-							(env-free env))))))
-	(emit (x86-movl (^ depth %esi) dst)))))
+      (let ((depth (lookup-lit-offset (literal-complex-value exp)
+				      (env-free env))))
+	(emit-free-load depth dst))))
 
 ;;;
 ;; == Conditional expressions
@@ -342,12 +342,22 @@
        (list))))
 
 (define-primitive (%print env si dst arg)
-  (emit
-   (compile arg env si %eax)
-   (x86-pushl %eax)
-   (x86-movl (^ 44 %ecx) %eax)
-   (x86-call-*eax)
-   (x86-addl ($ 4) %esp)))
+  (let ((saved-context-ptr-si si)
+	(saved-closure-ptr-si (- si $wordsize))
+	(saved-alloc-ptr-si (- si (* 2 $wordsize))))
+    (emit
+     (compile arg env si %eax)
+     (x86-movl %ecx (^ saved-context-ptr-si %esp))
+     (x86-movl %esi (^ saved-closure-ptr-si %esp))
+     (x86-movl %ebp (^ saved-alloc-ptr-si %esp))
+     (emit-adjust-base (- si 12))
+     (x86-pushl %eax)
+     (x86-movl (^ 44 %ecx) %eax)
+     (x86-call-*eax)
+     (emit-adjust-base (- 0 (- si 16)))
+     (x86-movl (^ saved-closure-ptr-si %esp) %esi)
+     (x86-movl (^ saved-alloc-ptr-si %esp) %ebp)
+     (x86-movl (^ saved-context-ptr-si %esp) %ecx))))
 
 (define (tagged-pointer-predicate env si dst arg tag)
   (let ((end-label (unique-label))
@@ -438,19 +448,16 @@
 	(error "couldn't find a binding for var ~a " exp))))
 
 (define (compile-local-variable binding si dst)
-  (emit
-   (x86-movl (^ (- 0 (* $wordsize (+ 1 (local-binding-depth binding)))) %esp)
-	     dst)))
+  (emit-stack-load (- 0 (+ 1 (local-binding-depth binding))) dst))
 
 (define (compile-free-variable binding si dst)
-  (emit
-   (x86-movl (^ (* $wordsize (+ 2 (free-binding-depth binding))) %esi) dst)))
+  (emit-free-load (free-binding-depth binding) dst))
 
 (define (compile-global-variable binding si dst)
   (let ((end-label (unique-label)))
     (debug "emiting global " binding)
     (emit
-     (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi) dst)
+     (emit-free-load (global-binding-depth binding) dst)
      (x86-movl (^ (- (* 2 $wordsize) $ptr-tag) dst) dst)
      (x86-cmpl ($ $immediate-unbound) dst)
      (x86-je end-label)
@@ -463,8 +470,7 @@
     (if (and binding (global-binding? binding))
 	(emit
 	 (compile (set!-value exp) env si %eax)
-	 (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi)
-		   %ebx)
+	 (emit-free-load (global-binding-depth binding) %ebx)
 	 (x86-movl %eax (^ (- (* 2 $wordsize) $ptr-tag) %ebx)))
 	(error "internal error: set! expression not setting a global variable ~a" exp))))
 
@@ -529,8 +535,9 @@
 
 (define (compile-lambda-free-lit lit env si offset)
   (let ((depth (lookup-lit-offset lit (env-free env))))
-    (emit (x86-movl (^ (* (+ 2 depth) $wordsize) %esi) %eax)
-	  (x86-movl %eax (^ offset %ebp)))))
+    (emit
+     (emit-free-load depth %eax)
+     (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lit-offset exp env)
   (if (null? env)
@@ -548,13 +555,14 @@
 (define (compile-lambda-free-global var env si offset)
   (let ((binding (lookup-variable (cadr var) env)))
     (if (and binding (global-binding? binding))
-	(emit (x86-movl (^ (* $wordsize (+ 2 (global-binding-depth binding))) %esi) %eax)
-	      (x86-movl %eax (^ offset %ebp)))
+	(emit 
+	 (emit-free-load (global-binding-depth binding) %eax)
+	 (x86-movl %eax (^ offset %ebp)))
 	(error "internal error: free global variable not a global ?!?" binding))))
 
 (define (compile-lambda-free-lambda lam env si offset)
   (let ((depth (lookup-lambda-offset (cadr lam) (env-free env))))
-    (emit (x86-movl (^ (* $wordsize (+ 2 depth)) %esi) %eax)
+    (emit (emit-free-load depth %eax)
 	  (x86-movl %eax (^ offset %ebp)))))
 
 (define (lookup-lambda-offset exp env)
@@ -576,8 +584,6 @@
 	    (+ 1 (lookup-lambda-offset exp (cdr env)))))))
 
 
-(define (header len code) (+ (* len 4) code))
-
 (define (compile-lambda exp env si dst)
   (let* ((free (lookup-lambda-free exp (env-free env)))
 	 (free-len (length free))
@@ -585,7 +591,7 @@
     (debug 'lambda exp 'local (env-local env) 'free (env-free env) 'cfree free)
     (emit
      (x86-movl ($ (header (+ (length free) 2) 0)) (^ 0 %ebp))
-     (x86-movl (^ (* $wordsize (+ depth 2)) %esi) %eax)
+     (emit-free-load depth %eax)
      (x86-addl ($ 7) %eax)
      (x86-movl %eax (^ $wordsize %ebp))
      (compile-lambda-free free env si (* 2 $wordsize))
@@ -651,29 +657,6 @@
 
 ;;;
 ;; == Tests procedure
-
-(define (test-call)
-  (scmc '((lambda (a) () a) 123)))
-
-(define (test-fib)
-  (scmc '(let ((fib (%cons 1 2)))
-	   (let ((a (%set-car! fib (lambda (fib* n) 
-				     ()
-				     (if (%fx< n 2)
-					 n
-					 (%fx+ ((%car fib*) fib* (%fx- n 1))
-					       ((%car fib*) fib* (%fx- n 2))))))))
-	     ((%car fib) fib 36)))))
-
-(define (test-fib-opt)
-  (scmc '(let ((fib (%cons 1 2)))
-	   (let ((a (%set-car! fib (lambda (fib* n) 
-				     ()
-				     (if (%fx< n 2)
-					 n
-					 (%fx+ ((%car fib*) fib* (%fx-1+ n))
-					       ((%car fib*) fib* (%fx-1+ (%fx-1+ n)))))))))
-	     ((%car fib) fib 36)))))
 
 (define (test exp)
   (let ((env (make-environment (free-variables exp '()) '())))
