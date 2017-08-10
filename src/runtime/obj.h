@@ -23,7 +23,7 @@
 #define INSTANCE_TAG    0x06
 #define FORWARD_TAG     0x07
 
-#define WORDSIZE       4
+#define WORDSIZE        sizeof(uintptr_t)
 
 typedef uintptr_t obj_t ;
 typedef uintptr_t header_t ;
@@ -120,6 +120,7 @@ typedef enum { code_vector, code_string, code_symbol, code_byte_vector,
 	       code_forward }
   header_code_t ;
 
+#ifdef TARGET_X86
 typedef struct {
   void* eax ; /* scratch */
   void* ebx ; /* preserve */
@@ -136,8 +137,31 @@ typedef struct {
   
   void* entry_print ;
 } context_t ;
+#endif
+typedef struct {
+  void *rax ;
+  void *tbx ;
+  void *rcx ;
+  void *rdx ;
+  void *rsi ;
+  void *rdi ;
+  void *rbp ;
+  void *rsp ;
+  void *r8 ;
+  void *r9 ;
+  void *r10 ;
+  void *r11 ;
+  void *r12 ;
+  void *r13 ;
+  void *r14 ;
+  void *r15 ;
 
-extern int stack_size ;
+  void *entry_arity_error ;
+  void *entry_value_error ;
+  void *entry_unbound_error ;
+} context_t ;
+
+extern uintptr_t stack_size ;
 extern char *stack_top ;
 extern char *stack_base ;
 

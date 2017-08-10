@@ -5,7 +5,7 @@
 
 #include "obj.h"
 
-int stack_size ;
+uintptr_t stack_size ;
 char *stack_top ;
 char *stack_base ;
 
@@ -103,8 +103,6 @@ vector_t *make_vector(size_t len) {
 
 obj_t tag(void *ptr, uint8_t tag) {return (((obj_t) ptr))+tag ; }
 obj_t *untag(obj_t obj, uint8_t tag) { return (obj_t *) ((obj - tag)) ; }
-
-static obj_t *alloc(size_t) ;
 
 static char* alloc_protected_space(int size)
 {
